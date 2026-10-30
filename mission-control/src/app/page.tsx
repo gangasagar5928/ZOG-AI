@@ -9,6 +9,7 @@ import OperatorControlPanel from "@/components/OperatorControlPanel";
 import EventStream from "@/components/EventStream";
 import LatencyKinematicsCharts from "@/components/LatencyKinematicsCharts";
 import { telemetryClient } from "@/lib/telemetryClient";
+import { initAnalytics } from "@/lib/firebase";
 import {
   SpacecraftTelemetry,
   TelemetryEvent,
@@ -25,6 +26,9 @@ export default function MissionControlDashboard() {
   const [utcTime, setUtcTime] = useState<string>("");
 
   useEffect(() => {
+    // Initialize Firebase Analytics
+    initAnalytics().catch(() => {});
+
     // 1. Initialize initial event list
     const initialEvents: TelemetryEvent[] = [
       {
