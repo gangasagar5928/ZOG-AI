@@ -100,7 +100,10 @@ Instruments execution across both physical domains:
 2. **Host-Side Monotonic Clock**:
    - `time.perf_counter_ns()` measures lock contention time, barrier sync latency, and end-to-end wall-clock recovery time.
 3. **PCIe Throughput Calculation**:
-   $$\text{Throughput (GB/s)} = \frac{\text{Bytes Transferred} / 1024^3}{\text{DMA Duration (seconds)}}$$
+
+$$
+\mathrm{Throughput\ (GB/s)} = \frac{\text{Bytes Transferred} / 1024^3}{\text{DMA Duration (seconds)}}
+$$
 
 ---
 

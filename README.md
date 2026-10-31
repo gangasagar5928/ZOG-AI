@@ -43,23 +43,35 @@ Operating unshielded semiconductors in ionizing space environments (cosmic rays,
 
 In deep neural networks executing control loops, stochastic bit transitions within IEEE-754 single-precision (FP32) tensors cause **Silent Data Corruption (SDC)**:
 
-1. **Sign-Bit Inversion ($\text{Bit } 31$):**
-   Reverses commanded torque polarity:
-   $$\boldsymbol{\tau}_{\text{cmd}} \to -\boldsymbol{\tau}_{\text{cmd}}$$
-   Injects positive angular momentum feedback that drives the spacecraft into anomalous kinetic spin-up.
+**1. Sign-Bit Inversion ($\text{Bit } 31$)**  
+Reverses commanded torque polarity:
 
-2. **Exponent Surge ($\text{Bits } 30\text{--}23$, $0 \to 1$):**
-   Scales numerical parameters exponentially:
-   $$\Delta x = 2^{+128} \approx 3.4028 \times 10^{38}$$
-   Induces instantaneous overflow, resulting in catastrophic `inf` and `NaN` cascades throughout activation layers.
+$$
+\boldsymbol{\tau}_{\mathrm{cmd}} \to -\boldsymbol{\tau}_{\mathrm{cmd}}
+$$
 
-3. **Exponent Collapse ($\text{Bits } 30\text{--}23$, $1 \to 0$):**
-   Collapses values into subnormal regimes:
-   $$\Delta x = 2^{-128} \approx 2.9387 \times 10^{-39}$$
-   Silently zeroes neural pathway sensitivity, severing attitude recovery channels.
+Injects positive angular momentum feedback driving anomalous kinetic spin-up.
 
-4. **Mantissa Shift ($\text{Bits } 22\text{--}0$):**
-   Induces latent numerical bias that bypasses naive sanity checks while producing anomalous orbital drift.
+**2. Exponent Surge ($\text{Bits } 30\text{--}23$, $0 \to 1$)**  
+Scales numerical parameters exponentially:
+
+$$
+\Delta x = 2^{+128} \approx 3.4028 \times 10^{38}
+$$
+
+Induces instantaneous numerical overflow and catastrophic `inf` / `NaN` cascades.
+
+**3. Exponent Collapse ($\text{Bits } 30\text{--}23$, $1 \to 0$)**  
+Collapses values into subnormal or zeroed regimes:
+
+$$
+\Delta x = 2^{-128} \approx 2.9387 \times 10^{-39}
+$$
+
+Silently zeroes neural pathway sensitivity, severing attitude control authority.
+
+**4. Mantissa Shift ($\text{Bits } 22\text{--}0$)**  
+Induces subtle parameter shifts causing anomalous orbital drift.
 
 Conventional aerospace mitigation relies on uncoordinated power cycles and multi-hour cold reboots, risking total vehicle loss. **RadZero** provides an in-situ software runtime sentinel that detects anomalies and hot-patches corrupted tensors directly in accelerator memory within a **$\le 100\text{ ms}$ control step deadline**, preserving continuous application uptime.
 
@@ -69,24 +81,24 @@ Conventional aerospace mitigation relies on uncoordinated power cycles and multi
 
 ```mermaid
 flowchart TD
-    Inp["Kinematic State Vector<br>x = [q_e, omega]^T in R^7"] --> Lock["Shared Parameter Read Lock Acquired"]
-    Lock --> Inf["PyTorch Deterministic Inference Graph<br>tau_cmd = M_theta(x)"]
-    Inf --> T1{"Tier 1 Invariant Tripwire<br>isnan(), isinf(), Dynamic Chebyshev"}
+    Inp["Kinematic State<br/>x = [q_e, w] in R^7"] --> Lock["Shared Read Lock<br/>Acquired"]
+    Lock --> Inf["PyTorch Graph<br/>tau_cmd = M(x)"]
+    Inf --> T1{"Tier 1 Tripwire<br/>NaN/Inf & Range"}
     
-    T1 -- Breach Detected --> Rec["Initiate In-Situ Hot-Patching<br>Exclusive Write Lock + DMA Restore"]
-    T1 -- Passed --> T2{"Tier 2 Rigid-Body Kinematic Gate<br>Torque Saturation, Accel, Slew Rate"}
+    T1 -- Breach --> Rec["In-Situ Recovery<br/>DMA Mirror Restore"]
+    T1 -- Pass --> T2{"Tier 2 Gate<br/>Kinematic Limits"}
     
-    T2 -- Kinematic Bounds Violated --> Rec
-    T2 -- Passed --> Act["Dispatch Command to Actuator Bus<br>||tau_cmd||_inf <= 0.05 N*m"]
+    T2 -- Breach --> Rec
+    T2 -- Pass --> Act["Actuator Dispatch<br/>Torque <= tau_max"]
     
-    Act --> Slack["Background Slack Time (Idle Frame)"]
-    Slack --> T3{"Tier 3 Cyclic Memory Scrubber<br>CRC-32-IEEE 802.3 Mirror Audit"}
-    T3 -- CRC Mismatch --> Rec
-    T3 -- Passed --> Nom["Maintain Nominal State"]
+    Act --> Slack["Slack Time (Idle)"]
+    Slack --> T3{"Tier 3 Scrubber<br/>CRC-32 Mirror Audit"}
+    T3 -- Mismatch --> Rec
+    T3 -- Pass --> Nom["Nominal State"]
     
-    Rec --> Reeval{"Post-Recovery Re-Verification<br>Tier 1 & Tier 2 Evaluation"}
-    Reeval -- Verified & Latency <= 100 ms --> Nom
-    Reeval -- Re-Verification Failed / Timeout --> Safe["Escalate to Classical Safe-Hold<br>tau_safe = -Kd * omega"]
+    Rec --> Reeval{"Post-Recovery<br/>Re-Verification"}
+    Reeval -- Pass --> Nom
+    Reeval -- Fail / Timeout --> Safe["Safe-Hold Mode<br/>tau_safe = -Kd * w"]
 ```
 
 ---
@@ -97,7 +109,9 @@ flowchart TD
 
 Every model parameter $w \in \mathbb{R}$ is formatted in IEEE-754 32-bit single precision:
 
-$$w = (-1)^s \cdot 2^{e - 127} \cdot \biggl(1 + \sum_{i=1}^{23} b_{23-i} 2^{-i}\biggr)$$
+$$
+w = (-1)^s \cdot 2^{e - 127} \cdot \biggl(1 + \sum_{i=1}^{23} b_{23-i} 2^{-i}\biggr)
+$$
 
 Where:
 * $s \in \lbrace 0, 1 \rbrace$ is the sign bit ($\text{Bit } 31$).
@@ -114,17 +128,27 @@ $$\mathbf{x} = \begin{bmatrix} \mathbf{q}_e \\ \boldsymbol{\omega} \end{bmatrix}
 
 The forward inference graph computes:
 
-$$\mathbf{h}_0 = \tanh(\mathbf{W}_0 \mathbf{x} + \mathbf{b}_0), \quad \mathbf{W}_0 \in \mathbb{R}^{64 \times 7}$$
+$$
+\mathbf{h}_0 = \tanh(\mathbf{W}_0 \mathbf{x} + \mathbf{b}_0), \quad \mathbf{W}_0 \in \mathbb{R}^{64 \times 7}
+$$
 
-$$\mathbf{h}_1 = \tanh(\mathbf{W}_1 \mathbf{h}_0 + \mathbf{b}_1), \quad \mathbf{W}_1 \in \mathbb{R}^{64 \times 64}$$
+$$
+\mathbf{h}_1 = \tanh(\mathbf{W}_1 \mathbf{h}_0 + \mathbf{b}_1), \quad \mathbf{W}_1 \in \mathbb{R}^{64 \times 64}
+$$
 
-$$\mathbf{h}_2 = \tanh(\mathbf{W}_2 \mathbf{h}_1 + \mathbf{b}_2), \quad \mathbf{W}_2 \in \mathbb{R}^{32 \times 64}$$
+$$
+\mathbf{h}_2 = \tanh(\mathbf{W}_2 \mathbf{h}_1 + \mathbf{b}_2), \quad \mathbf{W}_2 \in \mathbb{R}^{32 \times 64}
+$$
 
-$$\boldsymbol{\tau}_{\text{cmd}} = \mathbf{W}_3 \mathbf{h}_2 + \mathbf{b}_3, \quad \mathbf{W}_3 \in \mathbb{R}^{3 \times 32}$$
+$$
+\boldsymbol{\tau}_{\mathrm{cmd}} = \mathbf{W}_3 \mathbf{h}_2 + \mathbf{b}_3, \quad \mathbf{W}_3 \in \mathbb{R}^{3 \times 32}
+$$
 
 Partitioned into 4 sequential parameter blocks:
 
-$$\mathcal{B} = \lbrace \mathcal{B}_0: (\mathbf{W}_0, \mathbf{b}_0), \; \mathcal{B}_1: (\mathbf{W}_1, \mathbf{b}_1), \; \mathcal{B}_2: (\mathbf{W}_2, \mathbf{b}_2), \; \mathcal{B}_3: (\mathbf{W}_3, \mathbf{b}_3) \rbrace$$
+$$
+\mathcal{B} = \lbrace \mathcal{B}_0: (\mathbf{W}_0, \mathbf{b}_0), \; \mathcal{B}_1: (\mathbf{W}_1, \mathbf{b}_1), \; \mathcal{B}_2: (\mathbf{W}_2, \mathbf{b}_2), \; \mathcal{B}_3: (\mathbf{W}_3, \mathbf{b}_3) \rbrace
+$$
 
 ---
 
@@ -132,14 +156,25 @@ $$\mathcal{B} = \lbrace \mathcal{B}_0: (\mathbf{W}_0, \mathbf{b}_0), \; \mathcal
 
 Intermediate layer activations $\mathbf{a}_l$ are checked via PyTorch forward-pass hooks with $<5\%$ execution overhead:
 
-1. **Finite Value Verification:**
-   $$\forall a \in \mathbf{a}_l: \quad \neg\text{isnan}(a) \;\wedge\; \neg\text{isinf}(a)$$
+**1. Finite Value Verification**
 
-2. **Dynamic Chebyshev Layer-Wise Bounds:**
-   By Chebyshev's Inequality, for calibrated activation distribution $(\mu_l, \sigma_l)$ and factor $k = 4.5$:
-   $$P(|a_l - \mu_l| \ge k \sigma_l) \le \frac{1}{k^2} = \frac{1}{4.5^2} \approx 0.0494$$
-   The allowable dynamic activation envelope is:
-   $$\mu_l - k\sigma_l \le a_l \le \mu_l + k\sigma_l$$
+$$
+\forall a \in \mathbf{a}_l: \quad \neg\mathrm{isnan}(a) \;\wedge\; \neg\mathrm{isinf}(a)
+$$
+
+**2. Dynamic Chebyshev Layer-Wise Bounds**
+
+By Chebyshev's Inequality, for calibrated activation distribution $(\mu_l, \sigma_l)$ and factor $k = 4.5$:
+
+$$
+P(|a_l - \mu_l| \ge k \sigma_l) \le \frac{1}{k^2} = \frac{1}{4.5^2} \approx 0.0494
+$$
+
+The allowable dynamic activation envelope is:
+
+$$
+\mu_l - k\sigma_l \le a_l \le \mu_l + k\sigma_l
+$$
 
 Vectorized reduction is evaluated with `torch.aminmax(a_l)` in a single kernel pass.
 
@@ -147,21 +182,47 @@ Vectorized reduction is evaluated with `torch.aminmax(a_l)` in a single kernel p
 
 ### 3.4 Tier 2: Rigid-Body Dynamics & Actuator Gate (FR-3)
 
-Evaluates commanded torques against physical spacecraft kinematics over $\Delta t = 100\text{ ms}$:
+Evaluates commanded torques against physical spacecraft kinematics over control step $\Delta t = 100\text{ ms}$:
 
-1. **Actuator Torque Saturation:**
-   $$\|\boldsymbol{\tau}_{\text{cmd}}\|_\infty = \max(|\tau_x|, |\tau_y|, |\tau_z|) \le \tau_{\max} = 0.05\text{ N}\cdot\text{m}$$
+**1. Actuator Torque Saturation**
 
-2. **Rotational Dynamics (Euler's Equations of Motion):**
-   $$\mathbf{I}\dot{\boldsymbol{\omega}} + \boldsymbol{\omega} \times (\mathbf{I}\boldsymbol{\omega}) = \boldsymbol{\tau}_{\text{cmd}}$$
-   Rearranging for angular acceleration:
-   $$\dot{\boldsymbol{\omega}} = \mathbf{I}^{-1} \bigl[ \boldsymbol{\tau}_{\text{cmd}} - \boldsymbol{\omega} \times (\mathbf{I}\boldsymbol{\omega}) \bigr]$$
-   With spacecraft moment-of-inertia tensor $\mathbf{I} = \text{diag}(0.10, 0.10, 0.08)\text{ kg}\cdot\text{m}^2$:
-   $$\|\dot{\boldsymbol{\omega}}\|_2 = \sqrt{\dot{\omega}_x^2 + \dot{\omega}_y^2 + \dot{\omega}_z^2} \le \alpha_{\max} = 0.50\text{ rad/s}^2$$
+$$
+\|\boldsymbol{\tau}_{\mathrm{cmd}}\|_\infty = \max(|\tau_x|, |\tau_y|, |\tau_z|) \le \tau_{\max} = 0.05\text{ N}\cdot\text{m}
+$$
 
-3. **Integrated Slew-Rate Boundary:**
-   $$\boldsymbol{\omega}_{k+1} = \boldsymbol{\omega}_k + \dot{\boldsymbol{\omega}}\Delta t$$
-   $$\|\boldsymbol{\omega}_{k+1}\|_2 \le \omega_{\max} = 0.05\text{ rad/s}$$
+**2. Rotational Dynamics (Euler's Equations of Motion)**
+
+$$
+\mathbf{I}\dot{\boldsymbol{\omega}} + \boldsymbol{\omega} \times (\mathbf{I}\boldsymbol{\omega}) = \boldsymbol{\tau}_{\mathrm{cmd}}
+$$
+
+Rearranging for angular acceleration $\dot{\boldsymbol{\omega}}$:
+
+$$
+\dot{\boldsymbol{\omega}} = \mathbf{I}^{-1} \bigl[ \boldsymbol{\tau}_{\mathrm{cmd}} - \boldsymbol{\omega} \times (\mathbf{I}\boldsymbol{\omega}) \bigr]
+$$
+
+With spacecraft moment-of-inertia tensor:
+
+$$
+\mathbf{I} = \mathrm{diag}(0.10, 0.10, 0.08)\text{ kg}\cdot\text{m}^2
+$$
+
+Evaluating dynamic angular acceleration:
+
+$$
+\|\dot{\boldsymbol{\omega}}\|_2 = \sqrt{\dot{\omega}_x^2 + \dot{\omega}_y^2 + \dot{\omega}_z^2} \le \alpha_{\max} = 0.50\text{ rad/s}^2
+$$
+
+**3. Integrated Slew-Rate Boundary**
+
+$$
+\boldsymbol{\omega}_{k+1} = \boldsymbol{\omega}_k + \dot{\boldsymbol{\omega}}\Delta t
+$$
+
+$$
+\|\boldsymbol{\omega}_{k+1}\|_2 \le \omega_{\max} = 0.05\text{ rad/s}
+$$
 
 ---
 
@@ -169,11 +230,15 @@ Evaluates commanded torques against physical spacecraft kinematics over $\Delta 
 
 Operates in background slack time during the 100 ms control frame ($\le 15\text{ ms}$ budget). Cyclically verifies 1 parameter block $\mathcal{B}_i$ per frame using CRC-32-IEEE 802.3:
 
-$$G(x) = x^{32} + x^{26} + x^{23} + x^{22} + x^{16} + x^{12} + x^{11} + x^{10} + x^8 + x^7 + x^5 + x^4 + x^2 + x + 1$$
+$$
+G(x) = x^{32} + x^{26} + x^{23} + x^{22} + x^{16} + x^{12} + x^{11} + x^{10} + x^8 + x^7 + x^5 + x^4 + x^2 + x + 1
+$$
 
 With 4 parameter blocks, complete model sweep period is:
 
-$$T_{\text{scrub}} = N_{\text{blocks}} \times \Delta t_{\text{frame}} = 4 \times 100\text{ ms} = 400\text{ ms}$$
+$$
+T_{\mathrm{scrub}} = N_{\mathrm{blocks}} \times \Delta t_{\mathrm{frame}} = 4 \times 100\text{ ms} = 400\text{ ms}
+$$
 
 Detects latent parameter mutations masked by zero activations or dead zones before they affect vehicle dynamics.
 
@@ -183,13 +248,19 @@ Detects latent parameter mutations masked by zero activations or dead zones befo
 
 When unrecoverable faults occur (e.g., dual mirror corruption or latency deadline breaches), the system triggers hard-coded proportional rate damping:
 
-$$\boldsymbol{\tau}_{\text{safe}} = \text{clip}(-K_d \boldsymbol{\omega}, \; -\tau_{\max}, \; +\tau_{\max}), \quad K_d = 0.08\text{ N}\cdot\text{m}\cdot\text{s/rad}$$
+$$
+\boldsymbol{\tau}_{\mathrm{safe}} = \mathrm{clip}(-K_d \boldsymbol{\omega}, \; -\tau_{\max}, \; +\tau_{\max}), \quad K_d = 0.08\text{ N}\cdot\text{m}\cdot\text{s/rad}
+$$
 
 Reaction-wheel momentum storage tracks integrated torque against hardware limits:
 
-$$\mathbf{h}_{\text{RW}}(t_{k+1}) = \mathbf{h}_{\text{RW}}(t_k) + \boldsymbol{\tau}_{\text{safe}}\Delta t$$
+$$
+\mathbf{h}_{\mathrm{RW}}(t_{k+1}) = \mathbf{h}_{\mathrm{RW}}(t_k) + \boldsymbol{\tau}_{\mathrm{safe}}\Delta t
+$$
 
-$$\|\mathbf{h}_{\text{RW}}\|_2 \le h_{\max} = 0.10\text{ N}\cdot\text{m}\cdot\text{s}$$
+$$
+\|\mathbf{h}_{\mathrm{RW}}\|_2 \le h_{\max} = 0.10\text{ N}\cdot\text{m}\cdot\text{s}
+$$
 
 ---
 
@@ -339,7 +410,9 @@ Dual-domain latency profiling measured across 50 consecutive physical SEU strike
 | **99th Percentile ($P_{99}$)** | $\le 40.0\text{ ms}$ | **$3.08\text{ ms}$** | **$13.0\times$ faster than target** |
 | **Maximum Recovery Latency** | $\le 100.0\text{ ms}$ | **$3.81\text{ ms}$** | **$26.2\times$ margin under control deadline** |
 
-$$\text{Margin}_{\text{safety}} = \frac{\Delta t_{\text{deadline}} - t_{\max}}{\Delta t_{\text{deadline}}} = \frac{100.0\text{ ms} - 3.81\text{ ms}}{100.0\text{ ms}} = 96.19\%$$
+$$
+\mathrm{Margin}_{\mathrm{safety}} = \frac{\Delta t_{\mathrm{deadline}} - t_{\max}}{\Delta t_{\mathrm{deadline}}} = \frac{100.0\text{ ms} - 3.81\text{ ms}}{100.0\text{ ms}} = 96.19\%
+$$
 
 ---
 
