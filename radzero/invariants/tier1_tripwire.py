@@ -118,8 +118,9 @@ class Tier1Tripwire:
             # Dynamic Chebyshev bounds check
             if layer_name in self.layer_bounds:
                 lower, upper = self.layer_bounds[layer_name]
-                min_val = float(out.min().item())
-                max_val = float(out.max().item())
+                min_t, max_t = torch.aminmax(out)
+                min_val = float(min_t.item())
+                max_val = float(max_t.item())
 
                 if min_val < lower or max_val > upper:
                     observed = min_val if min_val < lower else max_val
