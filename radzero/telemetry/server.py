@@ -133,6 +133,12 @@ async def _simulation_loop():
         await asyncio.sleep(dt)
 
 
+@app.get("/api/health")
+async def get_health():
+    """Health check endpoint."""
+    return {"status": "ok", "state": sentinel.state.value}
+
+
 @app.get("/api/telemetry/latest")
 async def get_latest_telemetry():
     """HTTP 250 ms polling fallback endpoint for telemetry data."""
