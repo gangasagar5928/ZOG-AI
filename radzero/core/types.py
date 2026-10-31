@@ -35,6 +35,7 @@ class BreachType(str, Enum):
     TIER2_TORQUE_SATURATION = "TIER2_TORQUE_SATURATION"
     TIER2_ANGULAR_ACCEL = "TIER2_ANGULAR_ACCEL"
     TIER2_SLEW_RATE = "TIER2_SLEW_RATE"
+    TIER2_MOMENTUM_SATURATION = "TIER2_MOMENTUM_SATURATION"
     TIER3_CRC_MISMATCH = "TIER3_CRC_MISMATCH"
     TIMEOUT_BREACH = "TIMEOUT_BREACH"
     MIRROR_CORRUPTION = "MIRROR_CORRUPTION"
@@ -49,6 +50,7 @@ class KinematicLimits:
     omega_max: float = 0.08            # rad/s (FR-3: ||omega_{k+1}||_2 <= 0.08, accommodates 1-frame accel from rest)
     delta_t: float = 0.1               # 100 ms control timestep (FR-3: Delta t = 100 ms)
     h_max: float = 0.1                 # N*m*s reaction-wheel momentum storage limit
+    h_desat_threshold: float = 0.08    # N*m*s (80% of h_max: triggers predictive MTQ/RCS desaturation)
     kd_safe: float = 0.08              # Rate-damping proportional gain (tau = -Kd * omega)
     control_deadline_ms: float = 100.0 # Control frame deadline (FR-5)
     
@@ -94,6 +96,7 @@ class TelemetryPacket:
     recovery_latency_device_ms: float = 0.0
     recovery_count: int = 0
     safe_hold_active: bool = False
+    desaturation_requested: bool = False
     momentum_storage: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
     block_crcs: List[str] = field(default_factory=list)
 
@@ -115,6 +118,7 @@ class TelemetryPacket:
             "recovery_latency_device_ms": float(self.recovery_latency_device_ms),
             "recovery_count": int(self.recovery_count),
             "safe_hold_active": self.safe_hold_active,
+            "desaturation_requested": self.desaturation_requested,
             "momentum_storage": [float(x) for x in self.momentum_storage],
             "block_crcs": self.block_crcs,
         }

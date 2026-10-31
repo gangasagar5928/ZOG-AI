@@ -22,6 +22,8 @@ class Tier2DynamicsGate:
 
     def __init__(self, limits: KinematicLimits | None = None) -> None:
         self.limits = limits or KinematicLimits()
+        self.momentum_storage = np.zeros(3, dtype=np.float64)
+        self.desaturation_requested: bool = False
 
     def validate(
         self,
@@ -106,5 +108,51 @@ class Tier2DynamicsGate:
                 )
             )
 
+        # 4. Predictive Reaction-Wheel Momentum Budgeter:
+        #    h_{k+1} = h_k + tau_cmd * Delta_t
+        #    Signals desaturation when projected momentum >= 80% of h_max
+        projected_h = self.momentum_storage + tau * self.limits.delta_t
+        projected_h_norm = float(np.linalg.norm(projected_h))
+        if projected_h_norm >= self.limits.h_desat_threshold:
+            self.desaturation_requested = True
+
+        if projected_h_norm > self.limits.h_max:
+            breaches.append(
+                InvariantBreach(
+                    tier=2,
+                    breach_type=BreachType.TIER2_MOMENTUM_SATURATION,
+                    message=(
+                        f"Wheel momentum capacity breach: projected ||h||_2 = {projected_h_norm:.5f} N*m*s "
+                        f"> limit {self.limits.h_max:.5f} N*m*s"
+                    ),
+                    observed_value=projected_h_norm,
+                    threshold_value=self.limits.h_max,
+                    timestamp_ns=now_ns,
+                )
+            )
+
         passed = (len(breaches) == 0)
         return passed, breaches, alpha, next_omega
+
+    def update_momentum(self, tau_dispatched: np.ndarray | List[float]) -> bool:
+        """Accumulate dispatched torque into running reaction-wheel momentum storage.
+
+        Returns True if desaturation threshold (80% of h_max) is reached.
+        """
+        tau = np.asarray(tau_dispatched, dtype=np.float64).flatten()
+        self.momentum_storage += tau * self.limits.delta_t
+        h_norm = float(np.linalg.norm(self.momentum_storage))
+        self.desaturation_requested = (h_norm >= self.limits.h_desat_threshold)
+        return self.desaturation_requested
+
+    def desaturate_momentum(self, dump_ratio: float = 0.10) -> None:
+        """Bleed wheel momentum via external torquers (LEO MTQ m x B or deep-space RCS pulses)."""
+        self.momentum_storage *= max(0.0, 1.0 - dump_ratio)
+        h_norm = float(np.linalg.norm(self.momentum_storage))
+        if h_norm < self.limits.h_desat_threshold:
+            self.desaturation_requested = False
+
+    def reset_momentum(self) -> None:
+        """Reset reaction-wheel accumulated momentum."""
+        self.momentum_storage.fill(0.0)
+        self.desaturation_requested = False

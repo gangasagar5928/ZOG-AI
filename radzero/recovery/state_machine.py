@@ -179,6 +179,12 @@ class RadZeroRuntimeSentinel:
             alpha_dispatch = alpha
             next_omega_dispatch = next_omega
 
+            # Track running reaction-wheel momentum budget
+            if self.tier2.update_momentum(tau_dispatch):
+                # When 80% reserve threshold is reached, automatically fire external desaturation
+                # (LEO Magnetorquers tau = m x B or deep-space cold-gas RCS micro-pulses)
+                self.tier2.desaturate_momentum(dump_ratio=0.10)
+
             # Step 4: Background Slack Time: Tier 3 Scrubber (1 block per 100 ms)
             tier3_passed, tier3_breach, _, _ = self.tier3.audit_next_block()
             if not tier3_passed and tier3_breach is not None:
@@ -348,6 +354,7 @@ class RadZeroRuntimeSentinel:
     def reset_nominal(self) -> None:
         """Reset state from SAFE_HOLD back to NOMINAL, restore clean mirrors and clear momentum."""
         self.safe_hold.reset_momentum()
+        self.tier2.reset_momentum()
         self.state = SystemState.NOMINAL
         self.last_breach_msg = None
         # Restore model and mirrors to pristine baseline
@@ -385,6 +392,7 @@ class RadZeroRuntimeSentinel:
             recovery_latency_device_ms=self.last_device_latency_ms,
             recovery_count=self.recovery_count,
             safe_hold_active=safe_hold_active,
-            momentum_storage=self.safe_hold.momentum_storage.tolist(),
+            desaturation_requested=(self.tier2.desaturation_requested or self.safe_hold.desaturation_requested),
+            momentum_storage=(self.safe_hold.momentum_storage if safe_hold_active else self.tier2.momentum_storage).tolist(),
             block_crcs=self.tier3.get_block_crc_hex_list(),
         )

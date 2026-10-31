@@ -86,3 +86,41 @@ def test_tier2_maximum_torque_on_z_axis_consistent_with_alpha_max():
     assert passed, f"Maximum legal torque on z-axis from rest must pass Tier 2 gate, got breaches: {breaches}"
     assert alpha[2] == pytest.approx(0.625, abs=1e-5)
     assert next_omega[2] == pytest.approx(0.0625, abs=1e-5)
+
+
+def test_tier2_predictive_momentum_budgeter_signals_desaturation_at_80_percent():
+    """Verify that accumulated wheel momentum >= 80% h_max signals desaturation and desaturate_momentum dumps it."""
+    limits = KinematicLimits(h_max=0.10, h_desat_threshold=0.08, delta_t=0.10)
+    gate = Tier2DynamicsGate(limits=limits)
+
+    assert not gate.desaturation_requested
+
+    # Accumulate momentum by dispatching torque
+    # 15 steps of tau = 0.05 -> delta_h = 0.05 * 0.1 = 0.005 per step -> 16 * 0.005 = 0.080 N*m*s
+    for _ in range(15):
+        gate.update_momentum(np.array([0.05, 0.0, 0.0]))
+    assert not gate.desaturation_requested  # 0.075 < 0.080
+
+    gate.update_momentum(np.array([0.05, 0.0, 0.0]))  # 0.080 >= 0.080
+    assert gate.desaturation_requested, "80% capacity must trigger predictive desaturation signal"
+
+    # Bleed angular momentum via magnetorquers (m x B)
+    gate.desaturate_momentum(dump_ratio=0.15)
+    assert not gate.desaturation_requested, "Desaturation dump must clear desaturation request flag"
+
+
+def test_tier2_catches_momentum_overcapacity_breach():
+    """Verify that commanding torque that would exceed absolute momentum capacity h_max fails Tier 2."""
+    limits = KinematicLimits(h_max=0.10, h_desat_threshold=0.08, delta_t=0.10)
+    gate = Tier2DynamicsGate(limits=limits)
+
+    # Pre-load wheel near capacity (0.098 N*m*s)
+    gate.momentum_storage = np.array([0.098, 0.0, 0.0], dtype=np.float64)
+
+    # Torque command of 0.05 N*m for 0.1s adds 0.005 N*m*s -> 0.103 > 0.10
+    tau_overload = np.array([0.05, 0.0, 0.0], dtype=np.float64)
+    omega = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+
+    passed, breaches, _, _ = gate.validate(tau_overload, omega)
+    assert not passed, "Projected wheel momentum > h_max must trigger Tier 2 breach"
+    assert any(b.breach_type == BreachType.TIER2_MOMENTUM_SATURATION for b in breaches)

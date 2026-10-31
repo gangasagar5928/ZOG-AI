@@ -21,6 +21,7 @@ class SafeHoldController:
         self.momentum_storage = np.zeros(3, dtype=np.float64)
         self.saturation_count: int = 0
         self.momentum_saturated: bool = False
+        self.desaturation_requested: bool = False
 
     def compute_torque(self, omega: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Compute safe-hold rate damping torque.
@@ -44,6 +45,7 @@ class SafeHoldController:
 
         # Verify reaction-wheel momentum storage capacity: ||h||_2 <= h_max
         h_norm = float(np.linalg.norm(self.momentum_storage))
+        self.desaturation_requested = (h_norm >= self.limits.h_desat_threshold)
         if h_norm >= self.limits.h_max:
             self.momentum_saturated = True
             self.saturation_count += 1
@@ -61,11 +63,15 @@ class SafeHoldController:
     def desaturate_momentum(self, dump_ratio: float = 0.10) -> None:
         """Magnetic torquer (MTQ) cross-product momentum dumping law."""
         self.momentum_storage *= max(0.0, 1.0 - dump_ratio)
-        if np.linalg.norm(self.momentum_storage) < 0.90 * self.limits.h_max:
+        h_norm = float(np.linalg.norm(self.momentum_storage))
+        if h_norm < self.limits.h_desat_threshold:
+            self.desaturation_requested = False
+        if h_norm < 0.90 * self.limits.h_max:
             self.momentum_saturated = False
 
     def reset_momentum(self) -> None:
         """Reset reaction wheel accumulated momentum."""
         self.momentum_storage.fill(0.0)
         self.momentum_saturated = False
+        self.desaturation_requested = False
         self.saturation_count = 0
