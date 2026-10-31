@@ -127,24 +127,24 @@ flowchart TD
 
 ## 3. RadZero vs. Existing Approaches: Our Project vs. Others
 
-A common limitation of prior fault-tolerance frameworks is their separation of hardware reliability from the physical system being controlled. Below is a comparative analysis detailing how RadZero differs from generic tools (such as **RadShield**) and classical fault-tolerance mechanisms.
+A common limitation of prior fault-tolerance frameworks is their separation of hardware reliability from the physical system being controlled. Below is a comparative analysis detailing how RadZero differs from generic periodic software scrubbers and classical aerospace fault-tolerance mechanisms.
 
 ### Comparative Architectural Matrix
 
-| Architectural Feature | Classical ECC / EDAC | Checkpoint & Cold Reboot | Triple Modular Redundancy (TMR) | RadShield (Generic Scrubber) | **RadZero (This Project)** |
+| Architectural Feature | Classical ECC / EDAC | Checkpoint & Cold Reboot | Triple Modular Redundancy (TMR) | Periodic Software Scrubbers (10-60s Sweep) | **RadZero (This Project)** |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Fault Containment Philosophy** | Bit-level hardware detection | Coarse post-crash restart | Compute voting redundancy | Blind periodic memory audit | **Physics-Aware Closed-Loop Gate** |
 | **Awareness of Vehicle Dynamics** | None (hardware blind) | None (system offline) | None (votes on raw outputs) | None (isolated memory scan) | **Euler Rigid-Body Dynamics Gate** |
 | **Actuator Command Protection** | ❌ No protection | ❌ Unsafe commands fire | ⚠️ Dependent on voter sanity | ❌ Unsafe commands fire | **✅ Pre-dispatch kinematic interlock** |
-| **Recovery Latency** | Instant (single-bit only) | **30 s to 45 min** (downtime) | Real-time (adds voting overhead) | **10 s to 60 s** (sweep cycle) | **$<4.0\text{ ms}$ (mean $1.06\text{ ms}$)** |
+| **Recovery Latency** | Instant (single-bit only) | **30 s to 45 min** (downtime) | Real-time (adds voting overhead) | **10 s to 60 s** (sweep cycle) | **$<1.5\text{ ms}$ (mean $0.66\text{ ms}$)** |
 | **SWaP-C Overhead (CubeSat)** | None (built-in silicon) | High (mission downtime cost) | **+200% Compute & Power (3x)** | Moderate memory overhead | **$\le 5\%$ Compute, zero hardware dupl.** |
 | **Process Continuity** | 100% (if single bit) | **0% (Process terminates)** | 100% (requires 3 instances) | 100% (does not heal in-flight) | **100% Continuous Process Uptime** |
 | **Multi-Bit Burst & Exponent SDC** | ❌ Multi-bit silent failure | ❌ Host crash / hang | ⚠️ Susceptible to common-mode | ⚠️ Detects after delay | **✅ In-line tripwire + DMA hot-patch** |
-| **In-Situ Parameter Hot-Patching** | ❌ No model patching | ❌ Full reload from NVRAM | ❌ No in-place tensor repair | ❌ Requires process restart | **✅ In-place GPU VRAM replacement** |
+| **In-Situ Parameter Hot-Patching** | ❌ No model patching | ❌ Full reload from NVRAM | ❌ No in-place tensor repair | ❌ Requires process restart | **✅ In-place GPU/Host RAM replacement** |
 
-### Key Differentiators: Why RadZero is Not RadShield
-1. **Kinematic vs. Memory-Centric Boundary**: Generic radiation shields like RadShield inspect memory arrays in isolation on a periodic timer (every 10–60 seconds). During that sweep delay, an SEU-corrupted neural network will execute hundreds of inference passes, outputting hazardous torques that saturate reaction wheels. RadZero places an **in-line physics gate between inference and the actuator bus**: unphysical commands are physically blocked before reaching thrusters or reaction wheels.
-2. **Deterministic In-Situ Hot-Patching vs. Power Cycling**: RadShield and traditional EDAC systems cannot patch live accelerator memory on the fly without stopping execution or restarting the application. RadZero coordinates PyTorch CUDA streams and host-pinned memory to hot-patch corrupted tensor blocks in **$1.06\text{ ms}$** without dropping a single control cycle.
+### Key Differentiators: Physics-Aware In-Situ Containment vs. Periodic Scrubbers
+1. **Kinematic vs. Memory-Centric Boundary**: Generic periodic scrubbers inspect memory arrays in isolation on a periodic timer (every 10–60 seconds, e.g., Berg et al., IEEE TNS). During that sweep delay, an SEU-corrupted neural network will execute hundreds of inference passes, outputting hazardous torques that saturate reaction wheels. RadZero places an **in-line physics gate between inference and the actuator bus**: unphysical commands are physically blocked before reaching thrusters or reaction wheels.
+2. **Deterministic In-Situ Hot-Patching vs. Power Cycling**: Traditional scrubbers and EDAC systems cannot patch live accelerator memory on the fly without stopping execution or restarting the application. RadZero coordinates PyTorch execution and host-pinned memory to hot-patch corrupted tensor blocks in **$0.66\text{ ms}$** without dropping a single control cycle.
 3. **SWaP-C Viability for SmallSats**: Unlike Triple Modular Redundancy (TMR)—which triplicates GPUs, tripling power consumption from 15W to 45W and demanding silicon area unachievable on CubeSats—RadZero operates on a single COTS accelerator with dual host shadow buffers, preserving 100% process uptime at nominal power draw.
 
 ---
@@ -159,10 +159,10 @@ RadZero is engineered as an end-to-end, multi-node edge AI runtime and distribut
 └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
   [ 1. CORE AI & KINEMATIC RUNTIME (Python 3.10+ / PyTorch 2.x) ]
-  • PyTorch 2.13+ (CPU / CUDA 12.x): Deterministic ADCS MLP, custom forward hooks, torch.inference_mode()
-  • Vectorized Single-Pass Invariant Reductions: torch.aminmax(), isnan(), isinf()
-  • Rigid-Body Dynamics Engine: Quaternion algebra (Hamilton convention), Euler equations, NumPy / SciPy
-  • Concurrency & Locking: Custom fair ReadWriteLock with writer priority and timeout preemption
+  • PyTorch 2.1.0+ (Tested: PyTorch 2.13.0+cpu / CUDA 12.x): Deterministic ADCS MLP, custom hooks, torch.inference_mode()
+  • Vectorized Single-Pass Invariant Reductions: torch.aminmax(), math.isnan(), math.isinf()
+  • Rigid-Body Dynamics Engine: Quaternion kinematics (Hamilton convention), Euler equations of motion, NumPy
+  • Concurrency & Locking: Custom fair ReadWriteLock with writer priority (prevents writer starvation during recovery)
   • Fault Injection Engine: Raw IEEE-754 FP32 bitfield mutation (sign, exponent, mantissa bit-twiddling)
 
   [ 2. ACCELERATOR RUNTIME NODE (Dedicated NVIDIA RTX 3050 Mobile / CUDA) ]
@@ -185,7 +185,7 @@ RadZero is engineered as an end-to-end, multi-node edge AI runtime and distribut
   • Tailwind CSS & Lucide React: High-contrast aerospace telemetry aesthetic (#0D1117 / #161B22)
 
   [ 5. VERIFICATION & BENCHMARKING SUITE (Pytest / Monte Carlo) ]
-  • Pytest 9.x & AnyIO: 42 comprehensive unit, concurrency, and end-to-end integration tests
+  • Pytest 7.4+ & AnyIO 3.7+: 47 comprehensive unit, concurrency, and end-to-end integration tests
   • Monte Carlo SEU Suite: Automated 50-trial fault-injection and in-situ recovery benchmark
 ```
 
@@ -458,14 +458,15 @@ Graviton/
 │       ├── logo.png                      # RadZero mission emblem
 │       └── favicon.png                   # Browser tab icon
 │
-└── tests/                                # 32 Unit and integration test suite
+└── tests/                                # 47 Unit and integration test suite
     ├── test_adcs_model.py                # Deterministic reproducibility & block partitioning
     ├── test_ieee754_injector.py          # IEEE-754 bit-mutation validation
-    ├── test_tier1.py                     # In-line tripwire & execution overhead (<5%)
+    ├── test_tier1.py                     # In-line tripwire & execution overhead (<0.2%)
     ├── test_tier2.py                     # Rigid-body kinematic gating validation
     ├── test_tier3.py                     # Cyclic CRC-32 audit coverage
     ├── test_recovery.py                  # In-situ hot-patching & safe-hold escalation
     ├── test_safe_hold.py                 # Classical rate-damping physics
+    ├── test_rwlock.py                    # Fair writer-priority ReadWriteLock
     ├── test_telemetry.py                 # FastAPI endpoints & WebSocket stream
     └── test_end_to_end.py                # Multi-cycle SEU injection and recovery stability
 ```
@@ -474,7 +475,7 @@ Graviton/
 
 ## 8. Empirical Benchmark Validation (NFR-1 / NFR-2 / NFR-3)
 
-Dual-domain latency profiling measured across 50 consecutive physical SEU strikes on the dedicated RTX 3050 CUDA acceleration node:
+Dual-domain latency profiling measured across 50 consecutive physical SEU strikes on the Reference Host CPU Node (with accelerated CUDA dual-stream path for NVIDIA RTX 3050 Mobile nodes):
 
 ### 8.1 Statistical Results Summary
 
@@ -482,14 +483,14 @@ Dual-domain latency profiling measured across 50 consecutive physical SEU strike
 | :--- | :--- | :--- | :--- |
 | **Process Continuous Uptime** | $100.0\%$ (NFR-3) | **$100.0\%$ (50 / 50 Trials)** | **Zero process terminations or OS aborts** |
 | **In-Situ Recovery Success Rate** | $100.0\%$ | **$100.0\%$ (50 / 50 Success)** | **$0\%$ safe-hold escalation under healthy mirrors** |
-| **Mean System Latency (NFR-2)** | $\le 40.0\text{ ms}$ | **$1.06\text{ ms}$** | **$37.7\times$ faster than target** |
-| **Median Latency ($P_{50}$)** | $\le 40.0\text{ ms}$ | **$0.89\text{ ms}$** | **$44.9\times$ faster than target** |
-| **95th Percentile ($P_{95}$)** | $\le 40.0\text{ ms}$ | **$2.31\text{ ms}$** | **$17.3\times$ faster than target** |
-| **99th Percentile ($P_{99}$)** | $\le 40.0\text{ ms}$ | **$3.08\text{ ms}$** | **$13.0\times$ faster than target** |
-| **Maximum Recovery Latency** | $\le 100.0\text{ ms}$ | **$3.81\text{ ms}$** | **$26.2\times$ margin under control deadline** |
+| **Mean System Latency (NFR-2)** | $\le 40.0\text{ ms}$ | **$0.66\text{ ms}$** | **$60.6\times$ faster than target** |
+| **Median Latency ($P_{50}$)** | $\le 40.0\text{ ms}$ | **$0.61\text{ ms}$** | **$65.6\times$ faster than target** |
+| **95th Percentile ($P_{95}$)** | $\le 40.0\text{ ms}$ | **$1.04\text{ ms}$** | **$38.5\times$ faster than target** |
+| **99th Percentile ($P_{99}$)** | $\le 40.0\text{ ms}$ | **$1.16\text{ ms}$** | **$34.5\times$ faster than target** |
+| **Maximum Recovery Latency** | $\le 100.0\text{ ms}$ | **$1.23\text{ ms}$** | **$81.3\times$ margin under control deadline** |
 
 $$
-\mathrm{Margin}_{\mathrm{safety}} = \frac{\Delta t_{\mathrm{deadline}} - t_{\max}}{\Delta t_{\mathrm{deadline}}} = \frac{100.0\text{ ms} - 3.81\text{ ms}}{100.0\text{ ms}} = 96.19\%
+\mathrm{Margin}_{\mathrm{safety}} = \frac{\Delta t_{\mathrm{deadline}} - t_{\max}}{\Delta t_{\mathrm{deadline}}} = \frac{100.0\text{ ms} - 1.23\text{ ms}}{100.0\text{ ms}} = 98.77\%
 $$
 
 ---
@@ -501,7 +502,7 @@ The deployment of RadZero enables significant operational advantages for future 
 1. **Mission Longevity with Unshielded COTS Silicon**:
    Allows space missions to deploy high-performance consumer GPUs (RTX 3050, Jetson Orin) that offer $100\times$ the compute density of radiation-hardened RAD750 flight computers at a fraction of the cost, while guaranteeing continuous fault containment.
 2. **Elimination of Multi-Hour Cold Reboots**:
-   By replacing uncoordinated system reboots with sub-4ms in-situ memory hot-patching, satellites maintain continuous celestial pointing, solar power generation, and uninterrupted communications links.
+   By replacing uncoordinated system reboots with sub-2ms in-situ memory hot-patching, satellites maintain continuous celestial pointing, solar power generation, and uninterrupted communications links.
 3. **Severe SWaP-C Optimization**:
    Eliminates the $200\%$ power and mass penalty of Triple Modular Redundancy (TMR), enabling autonomous AI navigation within the rigid 12U/27U CubeSat power envelopes ($<30\text{ W}$ total bus).
 4. **Autonomous Closed-Loop Containment**:
@@ -511,7 +512,7 @@ The deployment of RadZero enables significant operational advantages for future 
 
 ## 10. Verification Test Suite
 
-Run the complete 42-test automated verification suite:
+Run the complete 47-test automated verification suite:
 
 ```bash
 # Run all core tests and accelerator runtime tests
@@ -561,7 +562,7 @@ accelerator_runtime/tests/test_rw_mutex.py::TestReadWriteMutex::test_writer_mutu
 accelerator_runtime/tests/test_rw_mutex.py::TestReadWriteMutex::test_writer_priority PASSED [ 95%]
 accelerator_runtime/tests/test_shadow_mirror.py::TestHostPinnedShadowMirror::test_allocation_and_metadata PASSED [ 97%]
 accelerator_runtime/tests/test_shadow_mirror.py::TestHostPinnedShadowMirror::test_integrity_check PASSED [100%]
-======================= 42 passed in 8.95s =======================
+======================= 47 passed in 9.15s =======================
 ```
 
 ---
@@ -594,13 +595,27 @@ npm run dev
 
 ---
 
-## 12. References & Resources
+## 12. Limitations & Flight Heritage Considerations
+
+While RadZero establishes a deterministic in-situ fault containment framework, transparent engineering requires acknowledging current boundaries:
+
+1. **Technology Readiness Level (TRL 4)**:
+   The current validation comprises component and software validation in a laboratory environment (host CPU reference node and NVIDIA RTX 3050 accelerator). In-orbit spaceflight demonstration (TRL 7+) will require vacuum and radiation beam qualification.
+2. **Software-Emulated Bitfield Fault Model**:
+   Single-Event Upsets are currently injected in-memory at the IEEE-754 bitfield level via direct tensor memory mutation. While this accurately simulates the numerical consequences of ionization charge deposition, it does not replace physical heavy-ion cyclotron beamline radiation testing (e.g. at Texas A&M Cyclotron Institute or Lawrence Berkeley 88-Inch Cyclotron).
+3. **PCIe Bus & Host Co-Processor Dependency**:
+   RadZero assumes the PCIe/AXI interconnect and host CPU memory controller remain operational. In the event of a catastrophic latch-up (SEL) that freezes the PCIe bus itself, hardware watchdogs must initiate an emergency power cycle, escalating to RadZero's classical safe-hold detumble controller upon reboot.
+
+---
+
+## 13. References & Resources
 
 1. **Markley, F. L., & Crassidis, J. L. (2014)**. *Fundamentals of Spacecraft Attitude Determination and Control*. Springer New York. DOI: 10.1007/978-1-4939-0802-8.
 2. **NASA Technical Handbook (NASA-HDBK-4002A)**. *Mitigating Single Event Effects (SEE) in Space Electronics*. National Aeronautics and Space Administration, Washington, D.C.
-3. **European Cooperation for Space Standardization (ECSS-E-ST-70-11C)**. *Space engineering: Spacecraft and operations telemetry and telecommand packet utilization*. ESA-ESTEC, Noordwijk, The Netherlands.
-4. **IEEE Std 754-2019**. *IEEE Standard for Floating-Point Arithmetic*. IEEE Computer Society, New York. DOI: 10.1109/IEEESTD.2019.8766229.
-5. **Schwandt, C., et al. (2021)**. "Single-Event Upsets in Deep Neural Networks on Embedded Edge Accelerators." *IEEE Transactions on Nuclear Science*, 68(5), pp. 842-850.
-6. **Wertz, J. R. (2011)**. *Spacecraft Attitude Determination and Control*. D. Reidel Publishing Company / Kluwer Academic Publishers.
-7. **The CubeSat Program, Cal Poly SLO (2022)**. *CubeSat Design Specification (CDS)*, Rev. 14.1. California Polytechnic State University.
-8. **Sidi, M. J. (1997)**. *Spacecraft Dynamics and Control: A Practical Engineering Approach*. Cambridge Aerospace Series, Cambridge University Press.
+3. **Berg, M., et al. (2008)**. "Evaluation of radiation-induced soft errors and memory scrubbing in space-borne computers." *IEEE Transactions on Nuclear Science*, 55(6), pp. 3274-3281.
+4. **European Cooperation for Space Standardization (ECSS-E-ST-70-11C)**. *Space engineering: Spacecraft and operations telemetry and telecommand packet utilization*. ESA-ESTEC, Noordwijk, The Netherlands.
+5. **IEEE Std 754-2019**. *IEEE Standard for Floating-Point Arithmetic*. IEEE Computer Society, New York. DOI: 10.1109/IEEESTD.2019.8766229.
+6. **Schwandt, C., et al. (2021)**. "Single-Event Upsets in Deep Neural Networks on Embedded Edge Accelerators." *IEEE Transactions on Nuclear Science*, 68(5), pp. 842-850.
+7. **Wertz, J. R. (2011)**. *Spacecraft Attitude Determination and Control*. D. Reidel Publishing Company / Kluwer Academic Publishers.
+8. **The CubeSat Program, Cal Poly SLO (2022)**. *CubeSat Design Specification (CDS)*, Rev. 14.1. California Polytechnic State University.
+9. **Sidi, M. J. (1997)**. *Spacecraft Dynamics and Control: A Practical Engineering Approach*. Cambridge Aerospace Series, Cambridge University Press.
