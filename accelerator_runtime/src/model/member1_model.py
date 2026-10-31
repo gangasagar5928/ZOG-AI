@@ -85,6 +85,10 @@ else:
         def to(self, device):
             return self
 
+        @property
+        def data(self):
+            return self
+
     class Member1PerceptionModel:
         """Simulation model fallback when torch is not present in local test harness."""
         def __init__(self, max_torque: float = 0.05):
