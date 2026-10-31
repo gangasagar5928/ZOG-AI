@@ -42,6 +42,9 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
     print("=" * 70)
 
     for trial_idx in range(1, num_trials + 1):
+        # Reset runtime to clean baseline before each trial
+        sentinel.reset_nominal()
+
         # Generate nominal attitude state
         q = np.random.randn(4)
         q /= np.linalg.norm(q)
@@ -58,6 +61,16 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
             # 2. Step runtime sentinel through fault detection & in-situ recovery
             packet = sentinel.step(state_vec)
 
+            # If fault was latent (e.g. subtle mantissa or masked activation),
+            # allow Tier 3 cyclic background scrubber to sweep and catch it (<= 4 frames = 400 ms)
+            detection_tier = "Tier 1/2 In-Line"
+            if packet.recovery_latency_system_ms == 0.0:
+                detection_tier = "Tier 3 Scrubber"
+                for _ in range(sentinel.tier3.num_blocks):
+                    packet = sentinel.step(state_vec)
+                    if packet.recovery_latency_system_ms > 0:
+                        break
+
             sys_lat = packet.recovery_latency_system_ms
             dev_lat = packet.recovery_latency_device_ms
 
@@ -67,7 +80,7 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
 
             if packet.state == SystemState.NOMINAL:
                 successful_recoveries += 1
-                status_str = "RECOVERED (NOMINAL)"
+                status_str = f"RECOVERED ({detection_tier})"
             elif packet.state == SystemState.SAFE_HOLD:
                 safe_hold_count += 1
                 status_str = "SAFE_HOLD"
@@ -79,6 +92,7 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
                 "target": target_type.value,
                 "layer": strike.layer_name,
                 "bit": strike.bit_index,
+                "detection_mechanism": detection_tier,
                 "orig_hex": strike.original_hex,
                 "mutated_hex": strike.mutated_hex,
                 "system_lat_ms": round(sys_lat, 3),
@@ -99,8 +113,15 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
 
     # Compute Statistical Distribution
     sys_arr = np.array(system_latencies_ms) if system_latencies_ms else np.array([0.0])
+    import torch
     stats = {
         "num_trials": num_trials,
+        "environment": {
+            "device": str(sentinel.device),
+            "device_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "Reference Host CPU Node",
+            "cuda_available": torch.cuda.is_available(),
+            "torch_version": torch.__version__,
+        },
         "successful_recoveries": successful_recoveries,
         "safe_hold_escalations": safe_hold_count,
         "crashes": crashes,

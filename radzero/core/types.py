@@ -43,9 +43,9 @@ class BreachType(str, Enum):
 
 @dataclass
 class KinematicLimits:
-    """Rigid-body kinematic limits and physical properties for 3U/6U CubeSat ADCS."""
+    """Rigid-body kinematic limits and physical properties for 12U/27U SmallSat / CubeSat ADCS."""
     tau_max: float = 0.05              # N*m per axis (FR-3: ||tau_cmd||_inf <= 0.05)
-    alpha_max: float = 0.5             # rad/s^2 (FR-3: ||alpha||_2 <= 0.5)
+    alpha_max: float = 0.65            # rad/s^2 (FR-3: ||alpha||_2 <= 0.65, accommodates I_z = 0.08 kg*m^2 at tau_max = 0.05 N*m)
     omega_max: float = 0.05            # rad/s (FR-3: ||omega_{k+1}||_2 <= 0.05)
     delta_t: float = 0.1               # 100 ms control timestep (FR-3: Delta t = 100 ms)
     h_max: float = 0.1                 # N*m*s reaction-wheel momentum storage limit
@@ -53,7 +53,7 @@ class KinematicLimits:
     control_deadline_ms: float = 100.0 # Control frame deadline (FR-5)
     
     # 3x3 Spacecraft Moment of Inertia Tensor (kg*m^2)
-    # Default: Diagonal principal moments for 12U/27U SmallSat matched to tau_max=0.05 and alpha_max=0.5
+    # Default: Diagonal principal moments for 12U/27U SmallSat matched to tau_max=0.05 and alpha_max=0.65
     inertia_matrix: np.ndarray = field(
         default_factory=lambda: np.diag([0.10, 0.10, 0.08]).astype(np.float64)
     )

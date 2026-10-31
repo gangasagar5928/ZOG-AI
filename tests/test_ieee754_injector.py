@@ -84,3 +84,21 @@ def test_mantissa_mutation_subtle_shift():
     mutated_val = float(param.data[0, 0].item())
     assert torch.isfinite(torch.tensor(mutated_val))
     assert mutated_val != 0.75
+
+
+def test_multidimensional_element_idx_mapping():
+    """Verify 2D element_idx maps via row-major index, not product."""
+    model = DeterministicADCSModel()
+    param = model.block0.weight  # Shape (64, 7)
+    param.data[3, 5] = 1.0
+
+    strike = IEEE754Injector.inject(
+        model,
+        layer_name="block0.weight",
+        target=BitfieldTarget.EXPONENT_COLLAPSE,
+        element_idx=(3, 5),
+    )
+
+    # In shape (64, 7), (3, 5) row-major is 3 * 7 + 5 = 26
+    assert strike.element_index == (3, 5)
+    assert param.data[3, 5].item() != 1.0, "Element at (3, 5) must be mutated"

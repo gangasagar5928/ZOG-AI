@@ -1,0 +1,19 @@
+# RadZero (ZOG-AI) Runtime & Verification Dependencies
+# Python >= 3.10
+
+# Deep Learning Framework
+torch>=2.1.0
+
+# Scientific & Kinematic Computing
+numpy>=1.24.0
+
+# Telemetry Server & Async API
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+websockets>=11.0
+python-multipart>=0.0.6
+
+# Verification & Test Harness
+pytest>=7.4.0
+anyio>=3.7.0

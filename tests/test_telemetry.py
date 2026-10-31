@@ -23,7 +23,7 @@ async def test_api_state_endpoint():
         assert "status" in data
         assert "limits" in data
         assert data["limits"]["tau_max"] == 0.05
-        assert data["limits"]["alpha_max"] == 0.5
+        assert data["limits"]["alpha_max"] == 0.65
 
 
 @pytest.mark.anyio

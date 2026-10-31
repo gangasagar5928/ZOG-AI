@@ -44,11 +44,13 @@ class SafeHoldController:
 
         # Verify reaction-wheel momentum storage capacity: ||h||_2 <= h_max
         h_norm = float(np.linalg.norm(self.momentum_storage))
-        if h_norm > self.limits.h_max:
+        if h_norm >= self.limits.h_max:
             self.momentum_saturated = True
             self.saturation_count += 1
-            # Saturate reaction wheel momentum
+            # Clamp reaction wheel momentum at physical saturation limit
             self.momentum_storage = (self.momentum_storage / h_norm) * self.limits.h_max
+            # Zero commanded torque to prevent mechanical overspin into saturated wheels
+            tau_safe = np.zeros(3, dtype=np.float64)
         else:
             self.momentum_saturated = False
 

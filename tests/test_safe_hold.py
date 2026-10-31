@@ -43,6 +43,7 @@ def test_safe_hold_momentum_capacity_limit():
     for _ in range(5):
         tau, saturated = controller.compute_torque(omega)
 
-    # Capacity clamped
+    # Capacity clamped and commanded torque zeroed to prevent runaway
     assert saturated
+    assert np.all(tau == 0.0), "Commanded torque must be zeroed when reaction wheel momentum is saturated"
     assert np.linalg.norm(controller.momentum_storage) <= limits.h_max + 1e-6

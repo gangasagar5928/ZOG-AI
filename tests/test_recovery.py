@@ -75,3 +75,12 @@ def test_recovery_latency_profiling():
     assert sentinel.recovery_count >= 1, "Expected recovery to trigger"
     assert packet.recovery_latency_system_ms > 0.0
     assert packet.recovery_latency_system_ms < 100.0, "Recovery latency must stay within 100 ms deadline"
+
+
+def test_extreme_rate_input_no_unbound_local_error():
+    """Verify that extreme rate input (omega >> omega_max) does not raise UnboundLocalError."""
+    sentinel = RadZeroRuntimeSentinel()
+    # Step with extreme angular velocity 1.5 rad/s (re-verification stress test)
+    packet = sentinel.step([1.0, 0.0, 0.0, 0.0, 1.5, 0.0, 0.0])
+    assert packet is not None
+    assert packet.state in (SystemState.NOMINAL, SystemState.SAFE_HOLD)

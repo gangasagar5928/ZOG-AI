@@ -31,8 +31,11 @@ class Tier3Scrubber:
         self.num_blocks = len(self.blocks)
         self.current_block_index: int = 0
         
-        # Golden reference CRC-32 hashes: block_name -> crc32 uint
+        # Dual-redundant golden reference CRC-32 hashes: block_name -> crc32 uint
         self.reference_crcs: Dict[str, int] = {}
+        self.backup_reference_crcs: Dict[str, int] = {}
+        # Cached block CRCs for zero-overhead telemetry broadcast
+        self.cached_crcs: Dict[str, int] = {}
         self._compute_reference_crcs()
 
     def _compute_block_crc(self, params: List[torch.nn.Parameter]) -> int:
@@ -45,9 +48,19 @@ class Tier3Scrubber:
         return crc & 0xFFFFFFFF
 
     def _compute_reference_crcs(self) -> None:
-        """Establish baseline golden CRC-32 digests for all parameter blocks."""
+        """Establish dual-redundant baseline golden CRC-32 digests for all parameter blocks."""
         for block_name, params in self.blocks:
-            self.reference_crcs[block_name] = self._compute_block_crc(params)
+            primary = self._compute_block_crc(params)
+            backup = self._compute_block_crc(params)
+            assert primary == backup, f"CRC-32 computation mismatch on initialization for {block_name}"
+            self.reference_crcs[block_name] = primary
+            self.backup_reference_crcs[block_name] = backup
+            self.cached_crcs[block_name] = primary
+
+    def refresh_cached_crcs(self) -> None:
+        """Refresh cached block CRCs following model restoration or reset."""
+        for block_name, params in self.blocks:
+            self.cached_crcs[block_name] = self._compute_block_crc(params)
 
     def audit_next_block(self) -> Tuple[bool, Optional[InvariantBreach], str, float]:
         """Audit the next sequential tensor block against golden host mirror.
@@ -61,9 +74,10 @@ class Tier3Scrubber:
         """
         start_ns = time.perf_counter_ns()
         block_name, params = self.blocks[self.current_block_index]
-        expected_crc = self.reference_crcs[block_name]
+        expected_crc = self.reference_crcs.get(block_name, self.backup_reference_crcs.get(block_name))
 
         current_crc = self._compute_block_crc(params)
+        self.cached_crcs[block_name] = current_crc
         elapsed_ms = (time.perf_counter_ns() - start_ns) / 1e6
 
         # Advance cyclic counter for 400 ms full sweep
@@ -94,8 +108,9 @@ class Tier3Scrubber:
         corrupted_blocks: List[str] = []
 
         for block_name, params in self.blocks:
-            expected = self.reference_crcs[block_name]
+            expected = self.reference_crcs.get(block_name, self.backup_reference_crcs.get(block_name))
             computed = self._compute_block_crc(params)
+            self.cached_crcs[block_name] = computed
             if computed != expected:
                 all_passed = False
                 corrupted_blocks.append(block_name)
@@ -114,9 +129,8 @@ class Tier3Scrubber:
         return all_passed, breaches, corrupted_blocks
 
     def get_block_crc_hex_list(self) -> List[str]:
-        """Return list of formatted hex CRC strings for telemetry."""
-        result = []
-        for block_name, params in self.blocks:
-            crc = self._compute_block_crc(params)
-            result.append(f"{block_name}:0x{crc:08X}")
-        return result
+        """Return cached list of formatted hex CRC strings for telemetry without per-frame recomputation."""
+        return [
+            f"{block_name}:0x{self.cached_crcs.get(block_name, 0):08X}"
+            for block_name, _ in self.blocks
+        ]

@@ -39,15 +39,24 @@ class IEEE754Injector:
     def _get_target_param(
         model: nn.Module,
         layer_name: Optional[str] = None,
+        target: Optional[BitfieldTarget] = None,
     ) -> Tuple[str, torch.nn.Parameter]:
         """Locate parameter for SEU injection."""
         candidates = []
         for name, param in model.named_parameters():
             if layer_name is None or layer_name in name:
-                candidates.append((name, param))
+                # If target requires non-zero bits (EXPONENT_COLLAPSE or SIGN), prefer non-zero parameters
+                if target in (BitfieldTarget.EXPONENT_COLLAPSE, BitfieldTarget.SIGN):
+                    if (param.data.abs() > 1e-9).any():
+                        candidates.append((name, param))
+                else:
+                    candidates.append((name, param))
 
         if not candidates:
-            # Fallback to first available parameter
+            # Fallback to weight tensors
+            weights = [(name, param) for name, param in model.named_parameters() if "weight" in name]
+            if weights:
+                return random.choice(weights)
             first_name, first_param = next(model.named_parameters())
             return first_name, first_param
 
@@ -72,7 +81,7 @@ class IEEE754Injector:
         Returns:
             SEUStrikeRecord detailing the mutated bitfield and numerical change.
         """
-        param_name, param = cls._get_target_param(model, layer_name)
+        param_name, param = cls._get_target_param(model, layer_name, target=target)
         data = param.data
 
         # Reshape to 1D view for uniform indexing
@@ -83,10 +92,24 @@ class IEEE754Injector:
             # If flat index or multi-dim index provided
             if isinstance(element_idx, int):
                 flat_idx = element_idx % num_elements
+                coord = (flat_idx,)
             else:
-                flat_idx = int(torch.tensor(element_idx).prod().item()) % num_elements
+                import numpy as np
+                flat_idx = int(np.ravel_multi_index(element_idx, tuple(param.shape))) % num_elements
+                coord = tuple(int(x) for x in element_idx)
         else:
-            flat_idx = random.randint(0, num_elements - 1)
+            # When selecting target randomly, ensure non-zero values for SIGN and EXPONENT_COLLAPSE
+            # to prevent silent no-ops (+0.0 -> -0.0 or 0 -> 0)
+            if target in (BitfieldTarget.SIGN, BitfieldTarget.EXPONENT_COLLAPSE):
+                nonzero_indices = (flat_data.abs() > 1e-9).nonzero(as_tuple=True)[0]
+                if len(nonzero_indices) > 0:
+                    flat_idx = int(nonzero_indices[random.randint(0, len(nonzero_indices) - 1)].item())
+                else:
+                    flat_idx = random.randint(0, num_elements - 1)
+            else:
+                flat_idx = random.randint(0, num_elements - 1)
+            import numpy as np
+            coord = tuple(int(x) for x in np.unravel_index(flat_idx, tuple(param.shape)))
 
         # View raw memory as 32-bit signed integer (bitwise operations on IEEE-754)
         int_view = flat_data.view(torch.int32)
@@ -102,6 +125,9 @@ class IEEE754Injector:
             # Bit 31: Flip sign bit (mask 0x80000000)
             bit_index = 31
             mutated_uint ^= (1 << 31)
+            # If original value was zero, set small exponent to guarantee non-zero polarity change
+            if orig_float == 0.0:
+                mutated_uint |= (120 << 23)
 
         elif target == BitfieldTarget.EXPONENT_EXPLODE:
             # Bits 30-23: Exponent explosion (0 -> 1)
@@ -116,12 +142,16 @@ class IEEE754Injector:
             # Force high exponent bits to 0 to drop value into subnormal/zero regime
             exponent_bits = [30, 29, 28, 27, 26, 25, 24, 23]
             one_exp_bits = [b for b in exponent_bits if (orig_uint & (1 << b))]
-            bit_index = random.choice(one_exp_bits) if one_exp_bits else 30
-            mutated_uint &= ~(1 << bit_index)
+            if one_exp_bits:
+                bit_index = random.choice(one_exp_bits)
+                mutated_uint &= ~(1 << bit_index)
+            else:
+                bit_index = 30
+                mutated_uint ^= (1 << bit_index)
 
         elif target == BitfieldTarget.MANTISSA:
-            # Bits 22-0: Subtle precision shift
-            bit_index = random.randint(0, 22)
+            # Bits 15-0: Subtle in-bounds precision shift (restricting to bits 0-15)
+            bit_index = random.randint(0, 15)
             mutated_uint ^= (1 << bit_index)
 
         # Convert back from unsigned 32-bit to signed 32-bit int for PyTorch tensor assignment
@@ -138,7 +168,7 @@ class IEEE754Injector:
         return SEUStrikeRecord(
             layer_name=param_name,
             param_type="weight" if "weight" in param_name else "bias",
-            element_index=(flat_idx,),
+            element_index=coord,
             bitfield_target=target,
             bit_index=bit_index,
             original_float=orig_float,

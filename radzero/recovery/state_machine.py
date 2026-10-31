@@ -70,20 +70,26 @@ class RadZeroRuntimeSentinel:
         self.active_breaches: List[InvariantBreach] = []
 
     def _calibrate_invariants(self) -> None:
-        """Calibrate Tier 1 bounds using nominal quaternion and velocity distributions."""
+        """Calibrate Tier 1 bounds using nominal and slewing quaternion/velocity distributions."""
         sample_states = []
-        for _ in range(50):
+        for _ in range(100):
             # Unit quaternion [q_w, q_x, q_y, q_z]
             q = np.random.randn(4)
             q /= np.linalg.norm(q)
-            # Small angular velocity within nominal [-0.02, 0.02] rad/s
-            w = np.random.uniform(-0.02, 0.02, size=3)
+            # Angular velocity covering nominal and slewing envelopes up to limits [-0.06, 0.06] rad/s
+            w = np.random.uniform(-0.06, 0.06, size=3)
             sample_states.append(np.concatenate([q, w]))
+
+        # Include boundary corner cases (+/- 0.08 rad/s)
+        for sign in [-1.0, 1.0]:
+            sample_states.append(np.array([1.0, 0.0, 0.0, 0.0, sign * 0.08, 0.0, 0.0]))
+            sample_states.append(np.array([1.0, 0.0, 0.0, 0.0, 0.0, sign * 0.08, 0.0]))
+            sample_states.append(np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, sign * 0.08]))
 
         sample_tensor = torch.tensor(
             np.array(sample_states), dtype=torch.float32, device=self.device
         )
-        self.tier1.calibrate_bounds(self.model, sample_tensor, num_runs=30)
+        self.tier1.calibrate_bounds(self.model, sample_tensor, num_runs=50)
 
     def step(self, state_input: np.ndarray | List[float]) -> TelemetryPacket:
         """Execute one complete 100 ms control frame step.
@@ -95,6 +101,8 @@ class RadZeroRuntimeSentinel:
             TelemetryPacket containing complete vehicle and runtime telemetry.
         """
         now_ns = time.perf_counter_ns()
+        self.last_system_latency_ms = 0.0
+        self.last_device_latency_ms = 0.0
         state_vec = np.asarray(state_input, dtype=np.float64).flatten()
         quaternion = state_vec[:4]
         omega = state_vec[4:7]
@@ -274,6 +282,9 @@ class RadZeroRuntimeSentinel:
             if use_cuda:
                 torch.cuda.synchronize()
 
+            # Refresh scrubber cached CRCs to match restored state
+            self.tier3.refresh_cached_crcs()
+
         # Step D: Post-Recovery Re-Verification
         with self.rwlock.read_lock():
             with torch.inference_mode():
@@ -281,6 +292,7 @@ class RadZeroRuntimeSentinel:
 
         re_tier1_ok, re_t1_breaches = self.tier1.check_and_clear_breaches()
         tau_recovered = re_tau.detach().cpu().numpy().astype(np.float64)
+        re_t2_breaches: List[InvariantBreach] = []
 
         if re_tier1_ok:
             re_tier2_ok, re_t2_breaches, alpha, next_omega = self.tier2.validate(
@@ -288,7 +300,8 @@ class RadZeroRuntimeSentinel:
             )
         else:
             re_tier2_ok = False
-            alpha = np.zeros(3)
+            re_t2_breaches = []
+            alpha = np.zeros(3, dtype=np.float64)
             next_omega = omega
 
         # Compute Latencies

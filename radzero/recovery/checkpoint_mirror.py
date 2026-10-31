@@ -116,13 +116,40 @@ class DualCheckpointMirror:
         model: nn.Module,
         device: torch.device,
     ) -> Tuple[bool, str, Optional[InvariantBreach]]:
-        """Hot-patch all parameters in-situ across the entire inference graph."""
-        used_sources = []
+        """Atomic hot-patch: verify all parameters across mirrors before modifying model memory."""
+        # Phase 1: Pre-validation of all parameters across mirrors
+        plan: List[Tuple[str, torch.nn.Parameter, torch.Tensor, str]] = []
         for name, param in model.named_parameters():
-            success, source_name, breach = self.hot_patch_parameter(name, param, device)
-            if not success:
+            if self.verify_mirror_parameter(name, use_backup=False):
+                plan.append((name, param, self.primary_mirror[name], "primary"))
+            elif self.verify_mirror_parameter(name, use_backup=True):
+                plan.append((name, param, self.backup_mirror[name], "backup"))
+            else:
+                breach = InvariantBreach(
+                    tier=0,
+                    breach_type=BreachType.MIRROR_CORRUPTION,
+                    message=f"Both primary and backup shadow mirrors failed CRC-32 for '{name}'",
+                    layer_name=name,
+                    timestamp_ns=time.perf_counter_ns(),
+                )
                 return False, "", breach
-            used_sources.append(source_name)
+
+        # Phase 2: Atomic in-situ application across verified parameter plan
+        used_sources = []
+        for name, param, source_tensor, source_name in plan:
+            try:
+                staged = source_tensor.to(device, non_blocking=True)
+                param.data.copy_(staged.data)
+                used_sources.append(source_name)
+            except Exception as ex:
+                breach = InvariantBreach(
+                    tier=0,
+                    breach_type=BreachType.DMA_EXCEPTION,
+                    message=f"DMA memory copy exception on '{name}': {str(ex)}",
+                    layer_name=name,
+                    timestamp_ns=time.perf_counter_ns(),
+                )
+                return False, "", breach
 
         summary_source = "primary" if all(s == "primary" for s in used_sources) else "primary+backup"
         return True, summary_source, None

@@ -69,3 +69,20 @@ def test_tier2_catches_slew_rate_breach():
     passed, breaches, _, next_omega = gate.validate(tau, omega_high)
     assert not passed, "Slew-rate > omega_max must fail Tier 2 gate"
     assert any(b.breach_type == BreachType.TIER2_SLEW_RATE for b in breaches)
+
+
+def test_tier2_maximum_torque_on_z_axis_consistent_with_alpha_max():
+    """Verify that commanding maximum legal torque (0.05 N*m) on the z-axis (I_zz=0.08) passes alpha_max=0.65."""
+    limits = KinematicLimits()  # Uses defaults: tau_max=0.05, alpha_max=0.65, I_zz=0.08
+    gate = Tier2DynamicsGate(limits=limits)
+
+    # Command maximum legal torque on z-axis with initial omega_z = -0.02 rad/s
+    # alpha_z = 0.05 / 0.08 = 0.625 rad/s^2 (<= 0.65 rad/s^2)
+    # next_omega_z = -0.02 + 0.625 * 0.1 = +0.0425 rad/s (<= 0.05 rad/s)
+    tau_max_z = np.array([0.0, 0.0, 0.05], dtype=np.float64)
+    omega_init = np.array([0.0, 0.0, -0.02], dtype=np.float64)
+
+    passed, breaches, alpha, next_omega = gate.validate(tau_max_z, omega_init)
+    assert passed, f"Maximum legal torque on z-axis must pass Tier 2 gate, got breaches: {breaches}"
+    assert alpha[2] == pytest.approx(0.625, abs=1e-5)
+    assert next_omega[2] == pytest.approx(0.0425, abs=1e-5)

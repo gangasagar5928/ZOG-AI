@@ -21,10 +21,27 @@ from radzero.core.types import BitfieldTarget, KinematicLimits, SystemState, Tel
 from radzero.mutation.ieee754_injector import IEEE754Injector
 from radzero.recovery.state_machine import RadZeroRuntimeSentinel
 
+from contextlib import asynccontextmanager
+import logging
+
+logger = logging.getLogger("radzero.telemetry")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Launch and cleanly cancel asynchronous vehicle simulation loop."""
+    sim_task = asyncio.create_task(_simulation_loop())
+    yield
+    sim_task.cancel()
+    try:
+        await sim_task
+    except asyncio.CancelledError:
+        pass
+
 app = FastAPI(
     title="RadZero Mission Control Telemetry API",
     version="2.3.0-FROZEN",
     description="Real-time telemetry and SEU fault-injection sentinel for Edge AI ADCS",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -55,17 +72,11 @@ class CorruptMirrorRequest(BaseModel):
     corrupt_backup: bool = True
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Launch asynchronous 30 Hz vehicle simulation and telemetry broadcast loop."""
-    asyncio.create_task(_simulation_loop())
-
-
 async def _simulation_loop():
-    """Continuous spacecraft orbit simulation and 30 Hz telemetry stream."""
+    """Continuous spacecraft orbit simulation synchronized with 100 ms control frame."""
     global current_state, latest_packet
 
-    dt = 0.0333  # ~30 Hz broadcast step
+    dt = limits.delta_t  # 100 ms control frame
     while True:
         try:
             # Step the sentinel with current vehicle kinematic state
@@ -112,8 +123,12 @@ async def _simulation_loop():
                         dead_sockets.add(ws)
                 connected_websockets.difference_update(dead_sockets)
 
+        except asyncio.CancelledError:
+            break
         except Exception as e:
-            pass
+            logger.error(f"Telemetry loop simulation error: {e}", exc_info=True)
+            sentinel.state = SystemState.DEGRADED
+            sentinel.last_breach_msg = f"Telemetry exception: {e}"
 
         await asyncio.sleep(dt)
 
