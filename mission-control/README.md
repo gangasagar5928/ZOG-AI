@@ -1,81 +1,82 @@
-<p align="center">
-  <img src="../assets/logo.png" alt="RadZero Official Mission Emblem" width="480"/>
-</p>
-
-# ANTIGRAVITY // Mission Control HUD (Aerospace Obsidian v2.4)
-
-**Role**: Member 2 (Prachi) — Frontend & Mission Control UI Lead  
-**Hardware Workstation**: UI Development Laptop (Node.js 18+ / Next.js 14 / Tailwind CSS)  
-**Primary Focus**: Mission Control HUD, real-time telemetry rendering, dynamic failure-state overlays, and network client routing.
-
----
-
-## Architecture & Visual Aesthetic
-
-- **Aerospace Obsidian Palette**:
-  - Base Background: `#0D1117`
-  - Container / HUD Panels: `#161B22`
-  - Structural Borders: `#30363D`
-  - Accents: Emerald `#10B981` (Nominal), Cyan `#06B6D4` (Recovery), Amber `#F59E0B` (Warning/Inhibited), Crimson `#EF4444` (Breach).
-
----
-
-## Core Systems Implemented
-
-### 1. Mission Control Scaffolding & Network Client Routing
-- Responsive **Next.js 14 App Router** layout engineered for 1080p, 1440p, and 4K mission control displays.
-- **Environment Variables**:
-  - `NEXT_PUBLIC_BACKEND_URL`: Connects across LAN to **Aaditya’s GPU node IP** (`http://<AADITYA_IP>:8000`).
-  - `NEXT_PUBLIC_FALLBACK_URL`: Automated fallback to `http://localhost:8000`.
-- **In-Situ Physics Simulator Fallback**: Automatically takes over if neither LAN GPU node nor localhost is reachable, maintaining seamless 60Hz kinematics and attitude dynamics.
-- **Interactive LAN Config Modal**: Allows the operator to test live ping latency and re-point the backend URL dynamically at runtime without restarting Next.js.
-
-### 2. Spacecraft Attitude & Dynamics Visualizer (Three.js WebGL)
-- Central 3D spacecraft model with satellite bus, MLI thermal blankets, solar array wings, high-gain parabolic antenna, and thruster clusters.
-- Directly driven by live quaternion $\mathbf{q} = [q_w, q_x, q_y, q_z]$ and angular velocity $\boldsymbol{\omega} = [\omega_x, \omega_y, \omega_z]$:
-  - **NOMINAL**: Smooth celestial tracking, stable attitude, emerald/cyan orientation vectors.
-  - **FAULT_ACTIVE (INLINE INVARIANT BREACH)**: Vehicle tumbling active, high angular velocity vector flaring, flashing warning rings.
-  - **SAFE_HOLD / RECOVERY_VERIFIED**: Stabilized rate-damping re-alignment, B-dot counter-torque active, convergence to celestial target vector.
-- Integrated 2D flight director artificial horizon pitch ladder and center crosshair reticle.
-- Real-time quaternion norm $\|\mathbf{q}\|$ validation and Euler angle readouts (Roll, Pitch, Yaw).
-
-### 3. Threat Overlays & Actuator Bus Indicators
-- Four Prominent Operational Status Badges:
-  1. **`NOMINAL`** (Emerald Green `#10B981`): Lyapunov safety basin verified.
-  2. **`INLINE INVARIANT BREACH`** (Pulsing Red `#EF4444`): Tensor safety violation.
-  3. **`ACTUATOR INHIBITED`** (Amber Warning `#F59E0B`): Barrier interlock clamped.
-  4. **`IN-SITU RECOVERY VERIFIED`** (Cyan `#06B6D4`): Manifold re-projected, rate-damping engaged.
-- **Actuator Gating Barrier Panel**:
-  - Visual lock gate graphic displaying `COMMANDS PERMITTED` vs. `ACTUATOR INHIBITED`.
-  - Interlock latch reason display.
-  - Hardware bus channels: RCS Thrusters (Quad 4x), Reaction Wheels (Triad X/Y/Z RPM & Saturation), Magnetorquers (B-Dot damping current), Gimbal Servos.
-
-### 4. Telemetry Feeds & Latency Distribution Charts
-- **Scrolling Event Stream**:
-  - Millisecond ISO timestamps.
-  - Affected tensor layers (e.g. `head.quaternion_regressor.fc1.weight`, `attention.qkv_projection.weight`).
-  - Fault-classification causes (e.g. `Single Event Upset (SEU) in Bit 14`, `Tensor Norm Invariant Divergence`).
-  - Filter by severity (`ALL`, `CRITICAL`, `RECOVERY`, `WARNING`), live search, freeze/pause stream, and clear log.
-- **Recharts Telemetry Graphs**:
-  - **Recovery Latency Distributions**: Real-time Area chart tracking $P_{50}$ (median) and $P_{95}$ (95th percentile) latency in milliseconds.
-  - **Kinematic Trends**: Multi-line kinematic accelerations ($a_x, a_y, a_z$ in $\text{m/s}^2$) and angular acceleration $\alpha_{\text{total}}$ in $\text{rad/s}^2$.
-
-### 5. Operator Command Console
-- **`[Inject SEU Strike]`**: Simulates radiation single-event upset into neural tensor layers, tripping invariant barriers and clamping actuators.
-- **`[Trigger In-Situ Recovery]`**: Executes neural checkpoint re-projection, restoring invariants and engaging rate-damping re-alignment.
-- **`[Engage Safe-Hold]`**: Manual override engaging B-dot rate damping magnetorquers and sun-pointing lock.
-- **`[Toggle Polling Mode]`**: Switches between high-frequency streaming (20Hz / 50ms) and REST polling (4Hz / 250ms).
-
----
-
-## Running the Application
-
-To launch the Mission Control HUD:
-```bash
-# Double click start-mission-control.bat or run:
-cd mission-control
-npm install
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+-<-p- -a-l-i-g-n-=-"-c-e-n-t-e-r-"->-
+- - -<-i-m-g- -s-r-c-=-"-.-.-/-a-s-s-e-t-s-/-l-o-g-o-.-p-n-g-"- -a-l-t-=-"-R-a-d-Z-e-r-o- -O-f-f-i-c-i-a-l- -M-i-s-s-i-o-n- -E-m-b-l-e-m-"- -w-i-d-t-h-=-"-4-8-0-"-/->-
+-<-/-p->-
+-
+-#- -A-N-T-I-G-R-A-V-I-T-Y- -/-/- -M-i-s-s-i-o-n- -C-o-n-t-r-o-l- -H-U-D- -(-A-e-r-o-s-p-a-c-e- -O-b-s-i-d-i-a-n- -v-2-.-4-)-
+-
+-*-*-R-o-l-e-*-*-:- -M-e-m-b-e-r- -2- -(-P-r-a-c-h-i-)- -—- -F-r-o-n-t-e-n-d- -&- -M-i-s-s-i-o-n- -C-o-n-t-r-o-l- -U-I- -L-e-a-d- - -
+-*-*-H-a-r-d-w-a-r-e- -W-o-r-k-s-t-a-t-i-o-n-*-*-:- -U-I- -D-e-v-e-l-o-p-m-e-n-t- -L-a-p-t-o-p- -(-N-o-d-e-.-j-s- -1-8-+- -/- -N-e-x-t-.-j-s- -1-4- -/- -T-a-i-l-w-i-n-d- -C-S-S-)- - -
+-*-*-P-r-i-m-a-r-y- -F-o-c-u-s-*-*-:- -M-i-s-s-i-o-n- -C-o-n-t-r-o-l- -H-U-D-,- -r-e-a-l---t-i-m-e- -t-e-l-e-m-e-t-r-y- -r-e-n-d-e-r-i-n-g-,- -d-y-n-a-m-i-c- -f-a-i-l-u-r-e---s-t-a-t-e- -o-v-e-r-l-a-y-s-,- -a-n-d- -n-e-t-w-o-r-k- -c-l-i-e-n-t- -r-o-u-t-i-n-g-.-
+-
+-------
+-
+-#-#- -A-r-c-h-i-t-e-c-t-u-r-e- -&- -V-i-s-u-a-l- -A-e-s-t-h-e-t-i-c-
+-
+--- -*-*-A-e-r-o-s-p-a-c-e- -O-b-s-i-d-i-a-n- -P-a-l-e-t-t-e-*-*-:-
+- - --- -B-a-s-e- -B-a-c-k-g-r-o-u-n-d-:- -`-#-0-D-1-1-1-7-`-
+- - --- -C-o-n-t-a-i-n-e-r- -/- -H-U-D- -P-a-n-e-l-s-:- -`-#-1-6-1-B-2-2-`-
+- - --- -S-t-r-u-c-t-u-r-a-l- -B-o-r-d-e-r-s-:- -`-#-3-0-3-6-3-D-`-
+- - --- -A-c-c-e-n-t-s-:- -E-m-e-r-a-l-d- -`-#-1-0-B-9-8-1-`- -(-N-o-m-i-n-a-l-)-,- -C-y-a-n- -`-#-0-6-B-6-D-4-`- -(-R-e-c-o-v-e-r-y-)-,- -A-m-b-e-r- -`-#-F-5-9-E-0-B-`- -(-W-a-r-n-i-n-g-/-I-n-h-i-b-i-t-e-d-)-,- -C-r-i-m-s-o-n- -`-#-E-F-4-4-4-4-`- -(-B-r-e-a-c-h-)-.-
+-
+-------
+-
+-#-#- -C-o-r-e- -S-y-s-t-e-m-s- -I-m-p-l-e-m-e-n-t-e-d-
+-
+-#-#-#- -1-.- -M-i-s-s-i-o-n- -C-o-n-t-r-o-l- -S-c-a-f-f-o-l-d-i-n-g- -&- -N-e-t-w-o-r-k- -C-l-i-e-n-t- -R-o-u-t-i-n-g-
+--- -R-e-s-p-o-n-s-i-v-e- -*-*-N-e-x-t-.-j-s- -1-4- -A-p-p- -R-o-u-t-e-r-*-*- -l-a-y-o-u-t- -e-n-g-i-n-e-e-r-e-d- -f-o-r- -1-0-8-0-p-,- -1-4-4-0-p-,- -a-n-d- -4-K- -m-i-s-s-i-o-n- -c-o-n-t-r-o-l- -d-i-s-p-l-a-y-s-.-
+--- -*-*-E-n-v-i-r-o-n-m-e-n-t- -V-a-r-i-a-b-l-e-s-*-*-:-
+- - --- -`-N-E-X-T-_-P-U-B-L-I-C-_-B-A-C-K-E-N-D-_-U-R-L-`-:- -C-o-n-n-e-c-t-s- -a-c-r-o-s-s- -L-A-N- -t-o- -*-*-A-a-d-i-t-y-a-’-s- -G-P-U- -n-o-d-e- -I-P-*-*- -(-`-h-t-t-p-:-/-/-<-A-A-D-I-T-Y-A-_-I-P->-:-8-0-0-0-`-)-.-
+- - --- -`-N-E-X-T-_-P-U-B-L-I-C-_-F-A-L-L-B-A-C-K-_-U-R-L-`-:- -A-u-t-o-m-a-t-e-d- -f-a-l-l-b-a-c-k- -t-o- -`-h-t-t-p-:-/-/-l-o-c-a-l-h-o-s-t-:-8-0-0-0-`-.-
+--- -*-*-I-n---S-i-t-u- -P-h-y-s-i-c-s- -S-i-m-u-l-a-t-o-r- -F-a-l-l-b-a-c-k-*-*-:- -A-u-t-o-m-a-t-i-c-a-l-l-y- -t-a-k-e-s- -o-v-e-r- -i-f- -n-e-i-t-h-e-r- -L-A-N- -G-P-U- -n-o-d-e- -n-o-r- -l-o-c-a-l-h-o-s-t- -i-s- -r-e-a-c-h-a-b-l-e-,- -m-a-i-n-t-a-i-n-i-n-g- -s-e-a-m-l-e-s-s- -6-0-H-z- -k-i-n-e-m-a-t-i-c-s- -a-n-d- -a-t-t-i-t-u-d-e- -d-y-n-a-m-i-c-s-.-
+--- -*-*-I-n-t-e-r-a-c-t-i-v-e- -L-A-N- -C-o-n-f-i-g- -M-o-d-a-l-*-*-:- -A-l-l-o-w-s- -t-h-e- -o-p-e-r-a-t-o-r- -t-o- -t-e-s-t- -l-i-v-e- -p-i-n-g- -l-a-t-e-n-c-y- -a-n-d- -r-e---p-o-i-n-t- -t-h-e- -b-a-c-k-e-n-d- -U-R-L- -d-y-n-a-m-i-c-a-l-l-y- -a-t- -r-u-n-t-i-m-e- -w-i-t-h-o-u-t- -r-e-s-t-a-r-t-i-n-g- -N-e-x-t-.-j-s-.-
+-
+-#-#-#- -2-.- -S-p-a-c-e-c-r-a-f-t- -A-t-t-i-t-u-d-e- -&- -D-y-n-a-m-i-c-s- -V-i-s-u-a-l-i-z-e-r- -(-T-h-r-e-e-.-j-s- -W-e-b-G-L-)-
+--- -C-e-n-t-r-a-l- -3-D- -s-p-a-c-e-c-r-a-f-t- -m-o-d-e-l- -w-i-t-h- -s-a-t-e-l-l-i-t-e- -b-u-s-,- -M-L-I- -t-h-e-r-m-a-l- -b-l-a-n-k-e-t-s-,- -s-o-l-a-r- -a-r-r-a-y- -w-i-n-g-s-,- -h-i-g-h---g-a-i-n- -p-a-r-a-b-o-l-i-c- -a-n-t-e-n-n-a-,- -a-n-d- -t-h-r-u-s-t-e-r- -c-l-u-s-t-e-r-s-.-
+--- -D-i-r-e-c-t-l-y- -d-r-i-v-e-n- -b-y- -l-i-v-e- -q-u-a-t-e-r-n-i-o-n- -$-\-m-a-t-h-b-f-{-q-}- -=- -[-q-_-w-,- -q-_-x-,- -q-_-y-,- -q-_-z-]-$- -a-n-d- -a-n-g-u-l-a-r- -v-e-l-o-c-i-t-y- -$-\-b-o-l-d-s-y-m-b-o-l-{-\-o-m-e-g-a-}- -=- -[-\-o-m-e-g-a-_-x-,- -\-o-m-e-g-a-_-y-,- -\-o-m-e-g-a-_-z-]-$-:-
+- - --- -*-*-N-O-M-I-N-A-L-*-*-:- -S-m-o-o-t-h- -c-e-l-e-s-t-i-a-l- -t-r-a-c-k-i-n-g-,- -s-t-a-b-l-e- -a-t-t-i-t-u-d-e-,- -e-m-e-r-a-l-d-/-c-y-a-n- -o-r-i-e-n-t-a-t-i-o-n- -v-e-c-t-o-r-s-.-
+- - --- -*-*-F-A-U-L-T-_-A-C-T-I-V-E- -(-I-N-L-I-N-E- -I-N-V-A-R-I-A-N-T- -B-R-E-A-C-H-)-*-*-:- -V-e-h-i-c-l-e- -t-u-m-b-l-i-n-g- -a-c-t-i-v-e-,- -h-i-g-h- -a-n-g-u-l-a-r- -v-e-l-o-c-i-t-y- -v-e-c-t-o-r- -f-l-a-r-i-n-g-,- -f-l-a-s-h-i-n-g- -w-a-r-n-i-n-g- -r-i-n-g-s-.-
+- - --- -*-*-S-A-F-E-_-H-O-L-D- -/- -R-E-C-O-V-E-R-Y-_-V-E-R-I-F-I-E-D-*-*-:- -S-t-a-b-i-l-i-z-e-d- -r-a-t-e---d-a-m-p-i-n-g- -r-e---a-l-i-g-n-m-e-n-t-,- -B---d-o-t- -c-o-u-n-t-e-r---t-o-r-q-u-e- -a-c-t-i-v-e-,- -c-o-n-v-e-r-g-e-n-c-e- -t-o- -c-e-l-e-s-t-i-a-l- -t-a-r-g-e-t- -v-e-c-t-o-r-.-
+--- -I-n-t-e-g-r-a-t-e-d- -2-D- -f-l-i-g-h-t- -d-i-r-e-c-t-o-r- -a-r-t-i-f-i-c-i-a-l- -h-o-r-i-z-o-n- -p-i-t-c-h- -l-a-d-d-e-r- -a-n-d- -c-e-n-t-e-r- -c-r-o-s-s-h-a-i-r- -r-e-t-i-c-l-e-.-
+--- -R-e-a-l---t-i-m-e- -q-u-a-t-e-r-n-i-o-n- -n-o-r-m- -$-\-|-\-m-a-t-h-b-f-{-q-}-\-|-$- -v-a-l-i-d-a-t-i-o-n- -a-n-d- -E-u-l-e-r- -a-n-g-l-e- -r-e-a-d-o-u-t-s- -(-R-o-l-l-,- -P-i-t-c-h-,- -Y-a-w-)-.-
+-
+-#-#-#- -3-.- -T-h-r-e-a-t- -O-v-e-r-l-a-y-s- -&- -A-c-t-u-a-t-o-r- -B-u-s- -I-n-d-i-c-a-t-o-r-s-
+--- -F-o-u-r- -P-r-o-m-i-n-e-n-t- -O-p-e-r-a-t-i-o-n-a-l- -S-t-a-t-u-s- -B-a-d-g-e-s-:-
+- - -1-.- -*-*-`-N-O-M-I-N-A-L-`-*-*- -(-E-m-e-r-a-l-d- -G-r-e-e-n- -`-#-1-0-B-9-8-1-`-)-:- -L-y-a-p-u-n-o-v- -s-a-f-e-t-y- -b-a-s-i-n- -v-e-r-i-f-i-e-d-.-
+- - -2-.- -*-*-`-I-N-L-I-N-E- -I-N-V-A-R-I-A-N-T- -B-R-E-A-C-H-`-*-*- -(-P-u-l-s-i-n-g- -R-e-d- -`-#-E-F-4-4-4-4-`-)-:- -T-e-n-s-o-r- -s-a-f-e-t-y- -v-i-o-l-a-t-i-o-n-.-
+- - -3-.- -*-*-`-A-C-T-U-A-T-O-R- -I-N-H-I-B-I-T-E-D-`-*-*- -(-A-m-b-e-r- -W-a-r-n-i-n-g- -`-#-F-5-9-E-0-B-`-)-:- -B-a-r-r-i-e-r- -i-n-t-e-r-l-o-c-k- -c-l-a-m-p-e-d-.-
+- - -4-.- -*-*-`-I-N---S-I-T-U- -R-E-C-O-V-E-R-Y- -V-E-R-I-F-I-E-D-`-*-*- -(-C-y-a-n- -`-#-0-6-B-6-D-4-`-)-:- -M-a-n-i-f-o-l-d- -r-e---p-r-o-j-e-c-t-e-d-,- -r-a-t-e---d-a-m-p-i-n-g- -e-n-g-a-g-e-d-.-
+--- -*-*-A-c-t-u-a-t-o-r- -G-a-t-i-n-g- -B-a-r-r-i-e-r- -P-a-n-e-l-*-*-:-
+- - --- -V-i-s-u-a-l- -l-o-c-k- -g-a-t-e- -g-r-a-p-h-i-c- -d-i-s-p-l-a-y-i-n-g- -`-C-O-M-M-A-N-D-S- -P-E-R-M-I-T-T-E-D-`- -v-s-.- -`-A-C-T-U-A-T-O-R- -I-N-H-I-B-I-T-E-D-`-.-
+- - --- -I-n-t-e-r-l-o-c-k- -l-a-t-c-h- -r-e-a-s-o-n- -d-i-s-p-l-a-y-.-
+- - --- -H-a-r-d-w-a-r-e- -b-u-s- -c-h-a-n-n-e-l-s-:- -R-C-S- -T-h-r-u-s-t-e-r-s- -(-Q-u-a-d- -4-x-)-,- -R-e-a-c-t-i-o-n- -W-h-e-e-l-s- -(-T-r-i-a-d- -X-/-Y-/-Z- -R-P-M- -&- -S-a-t-u-r-a-t-i-o-n-)-,- -M-a-g-n-e-t-o-r-q-u-e-r-s- -(-B---D-o-t- -d-a-m-p-i-n-g- -c-u-r-r-e-n-t-)-,- -G-i-m-b-a-l- -S-e-r-v-o-s-.-
+-
+-#-#-#- -4-.- -T-e-l-e-m-e-t-r-y- -F-e-e-d-s- -&- -L-a-t-e-n-c-y- -D-i-s-t-r-i-b-u-t-i-o-n- -C-h-a-r-t-s-
+--- -*-*-S-c-r-o-l-l-i-n-g- -E-v-e-n-t- -S-t-r-e-a-m-*-*-:-
+- - --- -M-i-l-l-i-s-e-c-o-n-d- -I-S-O- -t-i-m-e-s-t-a-m-p-s-.-
+- - --- -A-f-f-e-c-t-e-d- -t-e-n-s-o-r- -l-a-y-e-r-s- -(-e-.-g-.- -`-h-e-a-d-.-q-u-a-t-e-r-n-i-o-n-_-r-e-g-r-e-s-s-o-r-.-f-c-1-.-w-e-i-g-h-t-`-,- -`-a-t-t-e-n-t-i-o-n-.-q-k-v-_-p-r-o-j-e-c-t-i-o-n-.-w-e-i-g-h-t-`-)-.-
+- - --- -F-a-u-l-t---c-l-a-s-s-i-f-i-c-a-t-i-o-n- -c-a-u-s-e-s- -(-e-.-g-.- -`-S-i-n-g-l-e- -E-v-e-n-t- -U-p-s-e-t- -(-S-E-U-)- -i-n- -B-i-t- -1-4-`-,- -`-T-e-n-s-o-r- -N-o-r-m- -I-n-v-a-r-i-a-n-t- -D-i-v-e-r-g-e-n-c-e-`-)-.-
+- - --- -F-i-l-t-e-r- -b-y- -s-e-v-e-r-i-t-y- -(-`-A-L-L-`-,- -`-C-R-I-T-I-C-A-L-`-,- -`-R-E-C-O-V-E-R-Y-`-,- -`-W-A-R-N-I-N-G-`-)-,- -l-i-v-e- -s-e-a-r-c-h-,- -f-r-e-e-z-e-/-p-a-u-s-e- -s-t-r-e-a-m-,- -a-n-d- -c-l-e-a-r- -l-o-g-.-
+--- -*-*-R-e-c-h-a-r-t-s- -T-e-l-e-m-e-t-r-y- -G-r-a-p-h-s-*-*-:-
+- - --- -*-*-R-e-c-o-v-e-r-y- -L-a-t-e-n-c-y- -D-i-s-t-r-i-b-u-t-i-o-n-s-*-*-:- -R-e-a-l---t-i-m-e- -A-r-e-a- -c-h-a-r-t- -t-r-a-c-k-i-n-g- -$-P-_-{-5-0-}-$- -(-m-e-d-i-a-n-)- -a-n-d- -$-P-_-{-9-5-}-$- -(-9-5-t-h- -p-e-r-c-e-n-t-i-l-e-)- -l-a-t-e-n-c-y- -i-n- -m-i-l-l-i-s-e-c-o-n-d-s-.-
+- - --- -*-*-K-i-n-e-m-a-t-i-c- -T-r-e-n-d-s-*-*-:- -M-u-l-t-i---l-i-n-e- -k-i-n-e-m-a-t-i-c- -a-c-c-e-l-e-r-a-t-i-o-n-s- -(-$-a-_-x-,- -a-_-y-,- -a-_-z-$- -i-n- -$-\-t-e-x-t-{-m-/-s-}-^-2-$-)- -a-n-d- -a-n-g-u-l-a-r- -a-c-c-e-l-e-r-a-t-i-o-n- -$-\-a-l-p-h-a-_-{-\-t-e-x-t-{-t-o-t-a-l-}-}-$- -i-n- -$-\-t-e-x-t-{-r-a-d-/-s-}-^-2-$-.-
+-
+-#-#-#- -5-.- -O-p-e-r-a-t-o-r- -C-o-m-m-a-n-d- -C-o-n-s-o-l-e-
+--- -*-*-`-[-I-n-j-e-c-t- -S-E-U- -S-t-r-i-k-e-]-`-*-*-:- -S-i-m-u-l-a-t-e-s- -r-a-d-i-a-t-i-o-n- -s-i-n-g-l-e---e-v-e-n-t- -u-p-s-e-t- -i-n-t-o- -n-e-u-r-a-l- -t-e-n-s-o-r- -l-a-y-e-r-s-,- -t-r-i-p-p-i-n-g- -i-n-v-a-r-i-a-n-t- -b-a-r-r-i-e-r-s- -a-n-d- -c-l-a-m-p-i-n-g- -a-c-t-u-a-t-o-r-s-.-
+--- -*-*-`-[-T-r-i-g-g-e-r- -I-n---S-i-t-u- -R-e-c-o-v-e-r-y-]-`-*-*-:- -E-x-e-c-u-t-e-s- -n-e-u-r-a-l- -c-h-e-c-k-p-o-i-n-t- -r-e---p-r-o-j-e-c-t-i-o-n-,- -r-e-s-t-o-r-i-n-g- -i-n-v-a-r-i-a-n-t-s- -a-n-d- -e-n-g-a-g-i-n-g- -r-a-t-e---d-a-m-p-i-n-g- -r-e---a-l-i-g-n-m-e-n-t-.-
+--- -*-*-`-[-E-n-g-a-g-e- -S-a-f-e---H-o-l-d-]-`-*-*-:- -M-a-n-u-a-l- -o-v-e-r-r-i-d-e- -e-n-g-a-g-i-n-g- -B---d-o-t- -r-a-t-e- -d-a-m-p-i-n-g- -m-a-g-n-e-t-o-r-q-u-e-r-s- -a-n-d- -s-u-n---p-o-i-n-t-i-n-g- -l-o-c-k-.-
+--- -*-*-`-[-T-o-g-g-l-e- -P-o-l-l-i-n-g- -M-o-d-e-]-`-*-*-:- -S-w-i-t-c-h-e-s- -b-e-t-w-e-e-n- -h-i-g-h---f-r-e-q-u-e-n-c-y- -s-t-r-e-a-m-i-n-g- -(-2-0-H-z- -/- -5-0-m-s-)- -a-n-d- -R-E-S-T- -p-o-l-l-i-n-g- -(-4-H-z- -/- -2-5-0-m-s-)-.-
+-
+-------
+-
+-#-#- -R-u-n-n-i-n-g- -t-h-e- -A-p-p-l-i-c-a-t-i-o-n-
+-
+-T-o- -l-a-u-n-c-h- -t-h-e- -M-i-s-s-i-o-n- -C-o-n-t-r-o-l- -H-U-D-:-
+-`-`-`-b-a-s-h-
+-#- -D-o-u-b-l-e- -c-l-i-c-k- -s-t-a-r-t---m-i-s-s-i-o-n---c-o-n-t-r-o-l-.-b-a-t- -o-r- -r-u-n-:-
+-c-d- -m-i-s-s-i-o-n---c-o-n-t-r-o-l-
+-n-p-m- -i-n-s-t-a-l-l-
+-n-p-m- -r-u-n- -d-e-v-
+-`-`-`-
+-
+-O-p-e-n- -[-h-t-t-p-:-/-/-l-o-c-a-l-h-o-s-t-:-3-0-0-0-]-(-h-t-t-p-:-/-/-l-o-c-a-l-h-o-s-t-:-3-0-0-0-)- -i-n- -y-o-u-r- -b-r-o-w-s-e-r-.-
+-

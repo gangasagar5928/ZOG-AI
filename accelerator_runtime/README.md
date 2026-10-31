@@ -1,166 +1,167 @@
-<p align="center">
-  <img src="../assets/logo.png" alt="RadZero Official Mission Emblem" width="480"/>
-</p>
-
-# Member 3 (Aaditya): Accelerator Runtime (CUDA) & Systems Integration Node
-
-[![Target Hardware](https://img.shields.io/badge/Hardware-NVIDIA_RTX_3050_Mobile-76B900?logo=nvidia)](https://www.nvidia.com)
-[![CUDA Version](https://img.shields.io/badge/CUDA-12.x-green)](https://developer.nvidia.com/cuda-toolkit)
-[![Runtime Framework](https://img.shields.io/badge/Framework-PyTorch_2.x-EE4C2C?logo=pytorch)](https://pytorch.org)
-[![FastAPI Service](https://img.shields.io/badge/Backend-FastAPI_0.0.0.0%3A8000-009688?logo=fastapi)](https://fastapi.tiangolo.com)
-[![WebSocket Rate](https://img.shields.io/badge/Broadcaster-30_Hz_Telemetry-00f2fe)](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API)
-
----
-
-## 1. System Role & Executive Overview
-
-As **Member 3 (Aaditya) — Accelerator Runtime (CUDA) & Systems Integration Lead**, this node operates on the **Dedicated GPU Acceleration Node (NVIDIA GeForce RTX 3050 Mobile, 4GB/6GB VRAM, CUDA 12.x)**.
-
-### Primary Responsibilities:
-1. **GPU Execution Engine & Host-Pinned Memory**:
-   - Host and execute **Member 1’s PyTorch model** on the RTX 3050 GPU using dedicated CUDA streams and inference contexts (`torch.inference_mode()`).
-   - Allocate host shadow mirrors in host-pinned memory (`pin_memory=True`) to maximize PCIe DMA transfer throughput during recovery (`param.data.copy_(..., non_blocking=True)`).
-2. **Concurrency Safety & Memory Locking Protocol**:
-   - Implement the **Read-Write Parameter Mutex** coordinating nominal inference (shared read lock) and the recovery engine (exclusive write lock).
-   - Implement the **Hardware Recovery Barrier**: enforce device-wide synchronization (`torch.cuda.synchronize()`) before modifying device tensors, ensuring in-flight matrix multiplications (cuBLAS GEMM kernels) complete before memory addresses are overwritten.
-   - Execute in-place device memory updates (`param.data.copy_()`) from host-pinned buffers under exclusive lock protection.
-3. **Dual-Domain Latency Profiler**:
-   - Instrument device-side execution using paired `torch.cuda.Event(enable_timing=True)` to measure DMA transfer and re-inference times.
-   - Pair device timers with host monotonic clocks (`perf_counter_ns`) to measure end-to-end system recovery latency.
-4. **FastAPI Backend & LAN Distribution**:
-   - Host the FastAPI application on `0.0.0.0:8000` to allow access from **Prachi’s laptop** over the private local network.
-   - Expose REST control endpoints (`/api/inject`, `/api/recover`, `/api/reset`, `/api/mode`) and the **30 Hz WebSocket broadcaster** (`/ws/telemetry`) with graceful disconnect handling.
-   - Maintain the `/api/telemetry/latest` HTTP polling fallback endpoint.
-
----
-
-## 2. Architecture & Data Flow
-
-```mermaid
-flowchart TD
-    subgraph HostSystem["CPU Host System (Aaditya Node)"]
-        HPM["Host-Pinned Memory (pin_memory=True)\nGolden Shadow Mirrors"]
-        RWLock["Read-Write Parameter Mutex\n(Shared Read / Exclusive Write)"]
-        ProfilerHost["Host Latency Profiler\n(time.perf_counter_ns)"]
-        FastAPIServer["FastAPI Backend (0.0.0.0:8000)\nREST Endpoints & 30 Hz WS Broadcaster"]
-    end
-
-    subgraph HardwareGPU["NVIDIA GeForce RTX 3050 Mobile (CUDA 12.x)"]
-        subgraph Streams["Dedicated CUDA Streams"]
-            InferStream["Inference Stream (Priority: 0)\nNominal Pipelines & Contexts"]
-            RecovStream["Recovery Stream (Priority: -1)\nHardware Barrier & DMA Engine"]
-        end
-        VRAM["Model Parameters in Device VRAM\n(Member 1 Perception Model)"]
-        ProfilerGPU["Device Profiler Events\ntorch.cuda.Event(enable_timing=True)"]
-    end
-
-    subgraph LAN["Private Local Network (LAN)"]
-        Prachi["Prachi's Laptop / Client Node\n(HTTP REST & WebSocket 30 Hz)"]
-        Dashboard["Embedded Telemetry HUD\n(Browser UI on port 8000)"]
-    end
-
-    Prachi <-->|HTTP / WS| FastAPIServer
-    Dashboard <-->|WebSocket @ 30 Hz| FastAPIServer
-
-    RWLock -->|Shared Read Lock| InferStream
-    RWLock -->|Exclusive Write Lock| RecovStream
-
-    RecovStream -->|1. Device Barrier\ntorch.cuda.synchronize| VRAM
-    HPM -->|2. Asynchronous PCIe DMA\nparam.data.copy_ non_blocking=True| VRAM
-
-    InferStream --> ProfilerGPU
-    RecovStream --> ProfilerGPU
-    ProfilerGPU --> ProfilerHost
-    ProfilerHost --> FastAPIServer
-```
-
----
-
-## 3. Subsystem Breakdown
-
-### 3.1. Host-Pinned Memory (Zero-Copy DMA)
-Host-pinned memory is allocated via `pin_memory=True`:
-- **Why Pinned Memory?** Pinned pages (page-locked) are guaranteed not to be paged out by the OS virtual memory subsystem.
-- This allows the RTX 3050's DMA copy engine to transfer data directly over the PCIe bus (`param.data.copy_(host_mirror, non_blocking=True)`) without CPU bounce-buffering, maximizing PCIe bandwidth (typically 5–12+ GB/s).
-- Validated via `tensor.is_pinned() == True`.
-
-### 3.2. Concurrency Safety: Read-Write Parameter Mutex
-In high-frequency real-time inference (30–100+ FPS), recovering weights must never race with an active inference pass.
-- **Shared Read Lock**: Nominal inference requests acquire the read lock concurrently (`with rw_mutex.read_lock():`).
-- **Exclusive Write Lock**: The recovery engine acquires exclusive write lock (`with rw_mutex.write_lock():`).
-- **Writer-Priority**: Waiting recovery operations prevent new inference readers from starving the recovery queue.
-- **Hardware Recovery Barrier**: Before writing to device tensors, `torch.cuda.synchronize(device)` is invoked to ensure in-flight GEMM kernels on the inference stream drain and finish.
-
-### 3.3. Dual-Domain Latency Profiler
-Instruments execution across both physical domains:
-1. **Device-Side Hardware Clock**:
-   - Paired `torch.cuda.Event(enable_timing=True)` records GPU timestamp counters directly on the GPU command queue.
-   - Measures raw PCIe DMA transfer time (`dma_start.elapsed_time(dma_end)`).
-   - Measures re-inference validation time (`infer_start.elapsed_time(infer_end)`).
-2. **Host-Side Monotonic Clock**:
-   - `time.perf_counter_ns()` measures lock contention time, barrier sync latency, and end-to-end wall-clock recovery time.
-3. **PCIe Throughput Calculation**:
-
-$$
-\mathrm{Throughput\ (GB/s)} = \frac{\text{Bytes Transferred} / 1024^3}{\text{DMA Duration (seconds)}}
-$$
-
----
-
-## 4. API Endpoints & LAN Distribution
-
-The service binds to **`0.0.0.0:8000`** with full CORS support so Prachi's laptop can connect without restriction.
-
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `POST` | `/api/inject` | Injects simulated hardware faults (bit-flip, NaN, zeroing, noise) |
-| `POST` | `/api/recover` | Triggers atomic recovery barrier, PCIe DMA copy, and re-inference |
-| `POST` | `/api/reset` | Restores pristine golden weights and resets telemetry stats |
-| `GET` | `/api/mode` | Queries active mode (`NOMINAL`, `BENCHMARK`, `FAULT_TEST`) |
-| `POST` | `/api/mode` | Sets active operational mode |
-| `POST` | `/api/infer` | Executes an inference pass under shared read lock |
-| `GET` | `/api/telemetry/latest` | HTTP polling fallback returning complete telemetry snapshot |
-| `WS` | `/ws/telemetry` | **30 Hz WebSocket broadcaster** with graceful disconnect handling |
-| `GET` | `/` | Cyberpunk Glassmorphic Real-Time Telemetry HUD Dashboard |
-| `GET` | `/docs` | Interactive Swagger API Documentation |
-
----
-
-## 5. Quick Start Instructions
-
-### Prerequisites & PyTorch CUDA Setup
-To run with full hardware acceleration on the RTX 3050 Mobile:
-```bash
-# Install PyTorch with CUDA 12.x support:
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-# Install FastAPI and Networking dependencies:
-pip install fastapi "uvicorn[standard]" websockets pydantic numpy
-```
-
-### Launching the Backend Service
-Run on Aaditya's laptop (listening on all network interfaces):
-```bash
-python main.py --host 0.0.0.0 --port 8000
-```
-
-### Accessing from Prachi's Laptop
-On Prachi's workstation, open a browser or point frontend client to:
-```
-http://<AADITYA_LAN_IP>:8000/
-```
-(Aaditya's console prints the exact LAN IP upon startup, e.g. `http://192.168.1.50:8000`).
-
-### Running the Test Suite
-All 10 unit tests run with zero external dependencies in any environment:
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
-Output:
-```
-..........
-----------------------------------------------------------------------
-Ran 10 tests in 0.330s
-
-OK
-```
+-<-p- -a-l-i-g-n-=-"-c-e-n-t-e-r-"->-
+- - -<-i-m-g- -s-r-c-=-"-.-.-/-a-s-s-e-t-s-/-l-o-g-o-.-p-n-g-"- -a-l-t-=-"-R-a-d-Z-e-r-o- -O-f-f-i-c-i-a-l- -M-i-s-s-i-o-n- -E-m-b-l-e-m-"- -w-i-d-t-h-=-"-4-8-0-"-/->-
+-<-/-p->-
+-
+-#- -M-e-m-b-e-r- -3- -(-A-a-d-i-t-y-a-)-:- -A-c-c-e-l-e-r-a-t-o-r- -R-u-n-t-i-m-e- -(-C-U-D-A-)- -&- -S-y-s-t-e-m-s- -I-n-t-e-g-r-a-t-i-o-n- -N-o-d-e-
+-
+-[-!-[-T-a-r-g-e-t- -H-a-r-d-w-a-r-e-]-(-h-t-t-p-s-:-/-/-i-m-g-.-s-h-i-e-l-d-s-.-i-o-/-b-a-d-g-e-/-H-a-r-d-w-a-r-e---N-V-I-D-I-A-_-R-T-X-_-3-0-5-0-_-M-o-b-i-l-e---7-6-B-9-0-0-?-l-o-g-o-=-n-v-i-d-i-a-)-]-(-h-t-t-p-s-:-/-/-w-w-w-.-n-v-i-d-i-a-.-c-o-m-)-
+-[-!-[-C-U-D-A- -V-e-r-s-i-o-n-]-(-h-t-t-p-s-:-/-/-i-m-g-.-s-h-i-e-l-d-s-.-i-o-/-b-a-d-g-e-/-C-U-D-A---1-2-.-x---g-r-e-e-n-)-]-(-h-t-t-p-s-:-/-/-d-e-v-e-l-o-p-e-r-.-n-v-i-d-i-a-.-c-o-m-/-c-u-d-a---t-o-o-l-k-i-t-)-
+-[-!-[-R-u-n-t-i-m-e- -F-r-a-m-e-w-o-r-k-]-(-h-t-t-p-s-:-/-/-i-m-g-.-s-h-i-e-l-d-s-.-i-o-/-b-a-d-g-e-/-F-r-a-m-e-w-o-r-k---P-y-T-o-r-c-h-_-2-.-x---E-E-4-C-2-C-?-l-o-g-o-=-p-y-t-o-r-c-h-)-]-(-h-t-t-p-s-:-/-/-p-y-t-o-r-c-h-.-o-r-g-)-
+-[-!-[-F-a-s-t-A-P-I- -S-e-r-v-i-c-e-]-(-h-t-t-p-s-:-/-/-i-m-g-.-s-h-i-e-l-d-s-.-i-o-/-b-a-d-g-e-/-B-a-c-k-e-n-d---F-a-s-t-A-P-I-_-0-.-0-.-0-.-0-%-3-A-8-0-0-0---0-0-9-6-8-8-?-l-o-g-o-=-f-a-s-t-a-p-i-)-]-(-h-t-t-p-s-:-/-/-f-a-s-t-a-p-i-.-t-i-a-n-g-o-l-o-.-c-o-m-)-
+-[-!-[-W-e-b-S-o-c-k-e-t- -R-a-t-e-]-(-h-t-t-p-s-:-/-/-i-m-g-.-s-h-i-e-l-d-s-.-i-o-/-b-a-d-g-e-/-B-r-o-a-d-c-a-s-t-e-r---3-0-_-H-z-_-T-e-l-e-m-e-t-r-y---0-0-f-2-f-e-)-]-(-h-t-t-p-s-:-/-/-d-e-v-e-l-o-p-e-r-.-m-o-z-i-l-l-a-.-o-r-g-/-e-n---U-S-/-d-o-c-s-/-W-e-b-/-A-P-I-/-W-e-b-S-o-c-k-e-t-s-_-A-P-I-)-
+-
+-------
+-
+-#-#- -1-.- -S-y-s-t-e-m- -R-o-l-e- -&- -E-x-e-c-u-t-i-v-e- -O-v-e-r-v-i-e-w-
+-
+-A-s- -*-*-M-e-m-b-e-r- -3- -(-A-a-d-i-t-y-a-)- -—- -A-c-c-e-l-e-r-a-t-o-r- -R-u-n-t-i-m-e- -(-C-U-D-A-)- -&- -S-y-s-t-e-m-s- -I-n-t-e-g-r-a-t-i-o-n- -L-e-a-d-*-*-,- -t-h-i-s- -n-o-d-e- -o-p-e-r-a-t-e-s- -o-n- -t-h-e- -*-*-D-e-d-i-c-a-t-e-d- -G-P-U- -A-c-c-e-l-e-r-a-t-i-o-n- -N-o-d-e- -(-N-V-I-D-I-A- -G-e-F-o-r-c-e- -R-T-X- -3-0-5-0- -M-o-b-i-l-e-,- -4-G-B-/-6-G-B- -V-R-A-M-,- -C-U-D-A- -1-2-.-x-)-*-*-.-
+-
+-#-#-#- -P-r-i-m-a-r-y- -R-e-s-p-o-n-s-i-b-i-l-i-t-i-e-s-:-
+-1-.- -*-*-G-P-U- -E-x-e-c-u-t-i-o-n- -E-n-g-i-n-e- -&- -H-o-s-t---P-i-n-n-e-d- -M-e-m-o-r-y-*-*-:-
+- - - --- -H-o-s-t- -a-n-d- -e-x-e-c-u-t-e- -*-*-M-e-m-b-e-r- -1-’-s- -P-y-T-o-r-c-h- -m-o-d-e-l-*-*- -o-n- -t-h-e- -R-T-X- -3-0-5-0- -G-P-U- -u-s-i-n-g- -d-e-d-i-c-a-t-e-d- -C-U-D-A- -s-t-r-e-a-m-s- -a-n-d- -i-n-f-e-r-e-n-c-e- -c-o-n-t-e-x-t-s- -(-`-t-o-r-c-h-.-i-n-f-e-r-e-n-c-e-_-m-o-d-e-(-)-`-)-.-
+- - - --- -A-l-l-o-c-a-t-e- -h-o-s-t- -s-h-a-d-o-w- -m-i-r-r-o-r-s- -i-n- -h-o-s-t---p-i-n-n-e-d- -m-e-m-o-r-y- -(-`-p-i-n-_-m-e-m-o-r-y-=-T-r-u-e-`-)- -t-o- -m-a-x-i-m-i-z-e- -P-C-I-e- -D-M-A- -t-r-a-n-s-f-e-r- -t-h-r-o-u-g-h-p-u-t- -d-u-r-i-n-g- -r-e-c-o-v-e-r-y- -(-`-p-a-r-a-m-.-d-a-t-a-.-c-o-p-y-_-(-.-.-.-,- -n-o-n-_-b-l-o-c-k-i-n-g-=-T-r-u-e-)-`-)-.-
+-2-.- -*-*-C-o-n-c-u-r-r-e-n-c-y- -S-a-f-e-t-y- -&- -M-e-m-o-r-y- -L-o-c-k-i-n-g- -P-r-o-t-o-c-o-l-*-*-:-
+- - - --- -I-m-p-l-e-m-e-n-t- -t-h-e- -*-*-R-e-a-d---W-r-i-t-e- -P-a-r-a-m-e-t-e-r- -M-u-t-e-x-*-*- -c-o-o-r-d-i-n-a-t-i-n-g- -n-o-m-i-n-a-l- -i-n-f-e-r-e-n-c-e- -(-s-h-a-r-e-d- -r-e-a-d- -l-o-c-k-)- -a-n-d- -t-h-e- -r-e-c-o-v-e-r-y- -e-n-g-i-n-e- -(-e-x-c-l-u-s-i-v-e- -w-r-i-t-e- -l-o-c-k-)-.-
+- - - --- -I-m-p-l-e-m-e-n-t- -t-h-e- -*-*-H-a-r-d-w-a-r-e- -R-e-c-o-v-e-r-y- -B-a-r-r-i-e-r-*-*-:- -e-n-f-o-r-c-e- -d-e-v-i-c-e---w-i-d-e- -s-y-n-c-h-r-o-n-i-z-a-t-i-o-n- -(-`-t-o-r-c-h-.-c-u-d-a-.-s-y-n-c-h-r-o-n-i-z-e-(-)-`-)- -b-e-f-o-r-e- -m-o-d-i-f-y-i-n-g- -d-e-v-i-c-e- -t-e-n-s-o-r-s-,- -e-n-s-u-r-i-n-g- -i-n---f-l-i-g-h-t- -m-a-t-r-i-x- -m-u-l-t-i-p-l-i-c-a-t-i-o-n-s- -(-c-u-B-L-A-S- -G-E-M-M- -k-e-r-n-e-l-s-)- -c-o-m-p-l-e-t-e- -b-e-f-o-r-e- -m-e-m-o-r-y- -a-d-d-r-e-s-s-e-s- -a-r-e- -o-v-e-r-w-r-i-t-t-e-n-.-
+- - - --- -E-x-e-c-u-t-e- -i-n---p-l-a-c-e- -d-e-v-i-c-e- -m-e-m-o-r-y- -u-p-d-a-t-e-s- -(-`-p-a-r-a-m-.-d-a-t-a-.-c-o-p-y-_-(-)-`-)- -f-r-o-m- -h-o-s-t---p-i-n-n-e-d- -b-u-f-f-e-r-s- -u-n-d-e-r- -e-x-c-l-u-s-i-v-e- -l-o-c-k- -p-r-o-t-e-c-t-i-o-n-.-
+-3-.- -*-*-D-u-a-l---D-o-m-a-i-n- -L-a-t-e-n-c-y- -P-r-o-f-i-l-e-r-*-*-:-
+- - - --- -I-n-s-t-r-u-m-e-n-t- -d-e-v-i-c-e---s-i-d-e- -e-x-e-c-u-t-i-o-n- -u-s-i-n-g- -p-a-i-r-e-d- -`-t-o-r-c-h-.-c-u-d-a-.-E-v-e-n-t-(-e-n-a-b-l-e-_-t-i-m-i-n-g-=-T-r-u-e-)-`- -t-o- -m-e-a-s-u-r-e- -D-M-A- -t-r-a-n-s-f-e-r- -a-n-d- -r-e---i-n-f-e-r-e-n-c-e- -t-i-m-e-s-.-
+- - - --- -P-a-i-r- -d-e-v-i-c-e- -t-i-m-e-r-s- -w-i-t-h- -h-o-s-t- -m-o-n-o-t-o-n-i-c- -c-l-o-c-k-s- -(-`-p-e-r-f-_-c-o-u-n-t-e-r-_-n-s-`-)- -t-o- -m-e-a-s-u-r-e- -e-n-d---t-o---e-n-d- -s-y-s-t-e-m- -r-e-c-o-v-e-r-y- -l-a-t-e-n-c-y-.-
+-4-.- -*-*-F-a-s-t-A-P-I- -B-a-c-k-e-n-d- -&- -L-A-N- -D-i-s-t-r-i-b-u-t-i-o-n-*-*-:-
+- - - --- -H-o-s-t- -t-h-e- -F-a-s-t-A-P-I- -a-p-p-l-i-c-a-t-i-o-n- -o-n- -`-0-.-0-.-0-.-0-:-8-0-0-0-`- -t-o- -a-l-l-o-w- -a-c-c-e-s-s- -f-r-o-m- -*-*-P-r-a-c-h-i-’-s- -l-a-p-t-o-p-*-*- -o-v-e-r- -t-h-e- -p-r-i-v-a-t-e- -l-o-c-a-l- -n-e-t-w-o-r-k-.-
+- - - --- -E-x-p-o-s-e- -R-E-S-T- -c-o-n-t-r-o-l- -e-n-d-p-o-i-n-t-s- -(-`-/-a-p-i-/-i-n-j-e-c-t-`-,- -`-/-a-p-i-/-r-e-c-o-v-e-r-`-,- -`-/-a-p-i-/-r-e-s-e-t-`-,- -`-/-a-p-i-/-m-o-d-e-`-)- -a-n-d- -t-h-e- -*-*-3-0- -H-z- -W-e-b-S-o-c-k-e-t- -b-r-o-a-d-c-a-s-t-e-r-*-*- -(-`-/-w-s-/-t-e-l-e-m-e-t-r-y-`-)- -w-i-t-h- -g-r-a-c-e-f-u-l- -d-i-s-c-o-n-n-e-c-t- -h-a-n-d-l-i-n-g-.-
+- - - --- -M-a-i-n-t-a-i-n- -t-h-e- -`-/-a-p-i-/-t-e-l-e-m-e-t-r-y-/-l-a-t-e-s-t-`- -H-T-T-P- -p-o-l-l-i-n-g- -f-a-l-l-b-a-c-k- -e-n-d-p-o-i-n-t-.-
+-
+-------
+-
+-#-#- -2-.- -A-r-c-h-i-t-e-c-t-u-r-e- -&- -D-a-t-a- -F-l-o-w-
+-
+-`-`-`-m-e-r-m-a-i-d-
+-f-l-o-w-c-h-a-r-t- -T-D-
+- - - - -s-u-b-g-r-a-p-h- -H-o-s-t-S-y-s-t-e-m-[-"-C-P-U- -H-o-s-t- -S-y-s-t-e-m- -(-A-a-d-i-t-y-a- -N-o-d-e-)-"-]-
+- - - - - - - - -H-P-M-[-"-H-o-s-t---P-i-n-n-e-d- -M-e-m-o-r-y- -(-p-i-n-_-m-e-m-o-r-y-=-T-r-u-e-)-\-n-G-o-l-d-e-n- -S-h-a-d-o-w- -M-i-r-r-o-r-s-"-]-
+- - - - - - - - -R-W-L-o-c-k-[-"-R-e-a-d---W-r-i-t-e- -P-a-r-a-m-e-t-e-r- -M-u-t-e-x-\-n-(-S-h-a-r-e-d- -R-e-a-d- -/- -E-x-c-l-u-s-i-v-e- -W-r-i-t-e-)-"-]-
+- - - - - - - - -P-r-o-f-i-l-e-r-H-o-s-t-[-"-H-o-s-t- -L-a-t-e-n-c-y- -P-r-o-f-i-l-e-r-\-n-(-t-i-m-e-.-p-e-r-f-_-c-o-u-n-t-e-r-_-n-s-)-"-]-
+- - - - - - - - -F-a-s-t-A-P-I-S-e-r-v-e-r-[-"-F-a-s-t-A-P-I- -B-a-c-k-e-n-d- -(-0-.-0-.-0-.-0-:-8-0-0-0-)-\-n-R-E-S-T- -E-n-d-p-o-i-n-t-s- -&- -3-0- -H-z- -W-S- -B-r-o-a-d-c-a-s-t-e-r-"-]-
+- - - - -e-n-d-
+-
+- - - - -s-u-b-g-r-a-p-h- -H-a-r-d-w-a-r-e-G-P-U-[-"-N-V-I-D-I-A- -G-e-F-o-r-c-e- -R-T-X- -3-0-5-0- -M-o-b-i-l-e- -(-C-U-D-A- -1-2-.-x-)-"-]-
+- - - - - - - - -s-u-b-g-r-a-p-h- -S-t-r-e-a-m-s-[-"-D-e-d-i-c-a-t-e-d- -C-U-D-A- -S-t-r-e-a-m-s-"-]-
+- - - - - - - - - - - - -I-n-f-e-r-S-t-r-e-a-m-[-"-I-n-f-e-r-e-n-c-e- -S-t-r-e-a-m- -(-P-r-i-o-r-i-t-y-:- -0-)-\-n-N-o-m-i-n-a-l- -P-i-p-e-l-i-n-e-s- -&- -C-o-n-t-e-x-t-s-"-]-
+- - - - - - - - - - - - -R-e-c-o-v-S-t-r-e-a-m-[-"-R-e-c-o-v-e-r-y- -S-t-r-e-a-m- -(-P-r-i-o-r-i-t-y-:- ---1-)-\-n-H-a-r-d-w-a-r-e- -B-a-r-r-i-e-r- -&- -D-M-A- -E-n-g-i-n-e-"-]-
+- - - - - - - - -e-n-d-
+- - - - - - - - -V-R-A-M-[-"-M-o-d-e-l- -P-a-r-a-m-e-t-e-r-s- -i-n- -D-e-v-i-c-e- -V-R-A-M-\-n-(-M-e-m-b-e-r- -1- -P-e-r-c-e-p-t-i-o-n- -M-o-d-e-l-)-"-]-
+- - - - - - - - -P-r-o-f-i-l-e-r-G-P-U-[-"-D-e-v-i-c-e- -P-r-o-f-i-l-e-r- -E-v-e-n-t-s-\-n-t-o-r-c-h-.-c-u-d-a-.-E-v-e-n-t-(-e-n-a-b-l-e-_-t-i-m-i-n-g-=-T-r-u-e-)-"-]-
+- - - - -e-n-d-
+-
+- - - - -s-u-b-g-r-a-p-h- -L-A-N-[-"-P-r-i-v-a-t-e- -L-o-c-a-l- -N-e-t-w-o-r-k- -(-L-A-N-)-"-]-
+- - - - - - - - -P-r-a-c-h-i-[-"-P-r-a-c-h-i-'-s- -L-a-p-t-o-p- -/- -C-l-i-e-n-t- -N-o-d-e-\-n-(-H-T-T-P- -R-E-S-T- -&- -W-e-b-S-o-c-k-e-t- -3-0- -H-z-)-"-]-
+- - - - - - - - -D-a-s-h-b-o-a-r-d-[-"-E-m-b-e-d-d-e-d- -T-e-l-e-m-e-t-r-y- -H-U-D-\-n-(-B-r-o-w-s-e-r- -U-I- -o-n- -p-o-r-t- -8-0-0-0-)-"-]-
+- - - - -e-n-d-
+-
+- - - - -P-r-a-c-h-i- -<----->-|-H-T-T-P- -/- -W-S-|- -F-a-s-t-A-P-I-S-e-r-v-e-r-
+- - - - -D-a-s-h-b-o-a-r-d- -<----->-|-W-e-b-S-o-c-k-e-t- -@- -3-0- -H-z-|- -F-a-s-t-A-P-I-S-e-r-v-e-r-
+-
+- - - - -R-W-L-o-c-k- ----->-|-S-h-a-r-e-d- -R-e-a-d- -L-o-c-k-|- -I-n-f-e-r-S-t-r-e-a-m-
+- - - - -R-W-L-o-c-k- ----->-|-E-x-c-l-u-s-i-v-e- -W-r-i-t-e- -L-o-c-k-|- -R-e-c-o-v-S-t-r-e-a-m-
+-
+- - - - -R-e-c-o-v-S-t-r-e-a-m- ----->-|-1-.- -D-e-v-i-c-e- -B-a-r-r-i-e-r-\-n-t-o-r-c-h-.-c-u-d-a-.-s-y-n-c-h-r-o-n-i-z-e-|- -V-R-A-M-
+- - - - -H-P-M- ----->-|-2-.- -A-s-y-n-c-h-r-o-n-o-u-s- -P-C-I-e- -D-M-A-\-n-p-a-r-a-m-.-d-a-t-a-.-c-o-p-y-_- -n-o-n-_-b-l-o-c-k-i-n-g-=-T-r-u-e-|- -V-R-A-M-
+-
+- - - - -I-n-f-e-r-S-t-r-e-a-m- ----->- -P-r-o-f-i-l-e-r-G-P-U-
+- - - - -R-e-c-o-v-S-t-r-e-a-m- ----->- -P-r-o-f-i-l-e-r-G-P-U-
+- - - - -P-r-o-f-i-l-e-r-G-P-U- ----->- -P-r-o-f-i-l-e-r-H-o-s-t-
+- - - - -P-r-o-f-i-l-e-r-H-o-s-t- ----->- -F-a-s-t-A-P-I-S-e-r-v-e-r-
+-`-`-`-
+-
+-------
+-
+-#-#- -3-.- -S-u-b-s-y-s-t-e-m- -B-r-e-a-k-d-o-w-n-
+-
+-#-#-#- -3-.-1-.- -H-o-s-t---P-i-n-n-e-d- -M-e-m-o-r-y- -(-Z-e-r-o---C-o-p-y- -D-M-A-)-
+-H-o-s-t---p-i-n-n-e-d- -m-e-m-o-r-y- -i-s- -a-l-l-o-c-a-t-e-d- -v-i-a- -`-p-i-n-_-m-e-m-o-r-y-=-T-r-u-e-`-:-
+--- -*-*-W-h-y- -P-i-n-n-e-d- -M-e-m-o-r-y-?-*-*- -P-i-n-n-e-d- -p-a-g-e-s- -(-p-a-g-e---l-o-c-k-e-d-)- -a-r-e- -g-u-a-r-a-n-t-e-e-d- -n-o-t- -t-o- -b-e- -p-a-g-e-d- -o-u-t- -b-y- -t-h-e- -O-S- -v-i-r-t-u-a-l- -m-e-m-o-r-y- -s-u-b-s-y-s-t-e-m-.-
+--- -T-h-i-s- -a-l-l-o-w-s- -t-h-e- -R-T-X- -3-0-5-0-'-s- -D-M-A- -c-o-p-y- -e-n-g-i-n-e- -t-o- -t-r-a-n-s-f-e-r- -d-a-t-a- -d-i-r-e-c-t-l-y- -o-v-e-r- -t-h-e- -P-C-I-e- -b-u-s- -(-`-p-a-r-a-m-.-d-a-t-a-.-c-o-p-y-_-(-h-o-s-t-_-m-i-r-r-o-r-,- -n-o-n-_-b-l-o-c-k-i-n-g-=-T-r-u-e-)-`-)- -w-i-t-h-o-u-t- -C-P-U- -b-o-u-n-c-e---b-u-f-f-e-r-i-n-g-,- -m-a-x-i-m-i-z-i-n-g- -P-C-I-e- -b-a-n-d-w-i-d-t-h- -(-t-y-p-i-c-a-l-l-y- -5-–-1-2-+- -G-B-/-s-)-.-
+--- -V-a-l-i-d-a-t-e-d- -v-i-a- -`-t-e-n-s-o-r-.-i-s-_-p-i-n-n-e-d-(-)- -=-=- -T-r-u-e-`-.-
+-
+-#-#-#- -3-.-2-.- -C-o-n-c-u-r-r-e-n-c-y- -S-a-f-e-t-y-:- -R-e-a-d---W-r-i-t-e- -P-a-r-a-m-e-t-e-r- -M-u-t-e-x-
+-I-n- -h-i-g-h---f-r-e-q-u-e-n-c-y- -r-e-a-l---t-i-m-e- -i-n-f-e-r-e-n-c-e- -(-3-0-–-1-0-0-+- -F-P-S-)-,- -r-e-c-o-v-e-r-i-n-g- -w-e-i-g-h-t-s- -m-u-s-t- -n-e-v-e-r- -r-a-c-e- -w-i-t-h- -a-n- -a-c-t-i-v-e- -i-n-f-e-r-e-n-c-e- -p-a-s-s-.-
+--- -*-*-S-h-a-r-e-d- -R-e-a-d- -L-o-c-k-*-*-:- -N-o-m-i-n-a-l- -i-n-f-e-r-e-n-c-e- -r-e-q-u-e-s-t-s- -a-c-q-u-i-r-e- -t-h-e- -r-e-a-d- -l-o-c-k- -c-o-n-c-u-r-r-e-n-t-l-y- -(-`-w-i-t-h- -r-w-_-m-u-t-e-x-.-r-e-a-d-_-l-o-c-k-(-)-:-`-)-.-
+--- -*-*-E-x-c-l-u-s-i-v-e- -W-r-i-t-e- -L-o-c-k-*-*-:- -T-h-e- -r-e-c-o-v-e-r-y- -e-n-g-i-n-e- -a-c-q-u-i-r-e-s- -e-x-c-l-u-s-i-v-e- -w-r-i-t-e- -l-o-c-k- -(-`-w-i-t-h- -r-w-_-m-u-t-e-x-.-w-r-i-t-e-_-l-o-c-k-(-)-:-`-)-.-
+--- -*-*-W-r-i-t-e-r---P-r-i-o-r-i-t-y-*-*-:- -W-a-i-t-i-n-g- -r-e-c-o-v-e-r-y- -o-p-e-r-a-t-i-o-n-s- -p-r-e-v-e-n-t- -n-e-w- -i-n-f-e-r-e-n-c-e- -r-e-a-d-e-r-s- -f-r-o-m- -s-t-a-r-v-i-n-g- -t-h-e- -r-e-c-o-v-e-r-y- -q-u-e-u-e-.-
+--- -*-*-H-a-r-d-w-a-r-e- -R-e-c-o-v-e-r-y- -B-a-r-r-i-e-r-*-*-:- -B-e-f-o-r-e- -w-r-i-t-i-n-g- -t-o- -d-e-v-i-c-e- -t-e-n-s-o-r-s-,- -`-t-o-r-c-h-.-c-u-d-a-.-s-y-n-c-h-r-o-n-i-z-e-(-d-e-v-i-c-e-)-`- -i-s- -i-n-v-o-k-e-d- -t-o- -e-n-s-u-r-e- -i-n---f-l-i-g-h-t- -G-E-M-M- -k-e-r-n-e-l-s- -o-n- -t-h-e- -i-n-f-e-r-e-n-c-e- -s-t-r-e-a-m- -d-r-a-i-n- -a-n-d- -f-i-n-i-s-h-.-
+-
+-#-#-#- -3-.-3-.- -D-u-a-l---D-o-m-a-i-n- -L-a-t-e-n-c-y- -P-r-o-f-i-l-e-r-
+-I-n-s-t-r-u-m-e-n-t-s- -e-x-e-c-u-t-i-o-n- -a-c-r-o-s-s- -b-o-t-h- -p-h-y-s-i-c-a-l- -d-o-m-a-i-n-s-:-
+-1-.- -*-*-D-e-v-i-c-e---S-i-d-e- -H-a-r-d-w-a-r-e- -C-l-o-c-k-*-*-:-
+- - - --- -P-a-i-r-e-d- -`-t-o-r-c-h-.-c-u-d-a-.-E-v-e-n-t-(-e-n-a-b-l-e-_-t-i-m-i-n-g-=-T-r-u-e-)-`- -r-e-c-o-r-d-s- -G-P-U- -t-i-m-e-s-t-a-m-p- -c-o-u-n-t-e-r-s- -d-i-r-e-c-t-l-y- -o-n- -t-h-e- -G-P-U- -c-o-m-m-a-n-d- -q-u-e-u-e-.-
+- - - --- -M-e-a-s-u-r-e-s- -r-a-w- -P-C-I-e- -D-M-A- -t-r-a-n-s-f-e-r- -t-i-m-e- -(-`-d-m-a-_-s-t-a-r-t-.-e-l-a-p-s-e-d-_-t-i-m-e-(-d-m-a-_-e-n-d-)-`-)-.-
+- - - --- -M-e-a-s-u-r-e-s- -r-e---i-n-f-e-r-e-n-c-e- -v-a-l-i-d-a-t-i-o-n- -t-i-m-e- -(-`-i-n-f-e-r-_-s-t-a-r-t-.-e-l-a-p-s-e-d-_-t-i-m-e-(-i-n-f-e-r-_-e-n-d-)-`-)-.-
+-2-.- -*-*-H-o-s-t---S-i-d-e- -M-o-n-o-t-o-n-i-c- -C-l-o-c-k-*-*-:-
+- - - --- -`-t-i-m-e-.-p-e-r-f-_-c-o-u-n-t-e-r-_-n-s-(-)-`- -m-e-a-s-u-r-e-s- -l-o-c-k- -c-o-n-t-e-n-t-i-o-n- -t-i-m-e-,- -b-a-r-r-i-e-r- -s-y-n-c- -l-a-t-e-n-c-y-,- -a-n-d- -e-n-d---t-o---e-n-d- -w-a-l-l---c-l-o-c-k- -r-e-c-o-v-e-r-y- -t-i-m-e-.-
+-3-.- -*-*-P-C-I-e- -T-h-r-o-u-g-h-p-u-t- -C-a-l-c-u-l-a-t-i-o-n-*-*-:-
+-
+-$-$-
+-\-m-a-t-h-r-m-{-T-h-r-o-u-g-h-p-u-t-\- -(-G-B-/-s-)-}- -=- -\-f-r-a-c-{-\-t-e-x-t-{-B-y-t-e-s- -T-r-a-n-s-f-e-r-r-e-d-}- -/- -1-0-2-4-^-3-}-{-\-t-e-x-t-{-D-M-A- -D-u-r-a-t-i-o-n- -(-s-e-c-o-n-d-s-)-}-}-
+-$-$-
+-
+-------
+-
+-#-#- -4-.- -A-P-I- -E-n-d-p-o-i-n-t-s- -&- -L-A-N- -D-i-s-t-r-i-b-u-t-i-o-n-
+-
+-T-h-e- -s-e-r-v-i-c-e- -b-i-n-d-s- -t-o- -*-*-`-0-.-0-.-0-.-0-:-8-0-0-0-`-*-*- -w-i-t-h- -f-u-l-l- -C-O-R-S- -s-u-p-p-o-r-t- -s-o- -P-r-a-c-h-i-'-s- -l-a-p-t-o-p- -c-a-n- -c-o-n-n-e-c-t- -w-i-t-h-o-u-t- -r-e-s-t-r-i-c-t-i-o-n-.-
+-
+-|- -M-e-t-h-o-d- -|- -E-n-d-p-o-i-n-t- -|- -D-e-s-c-r-i-p-t-i-o-n- -|-
+-|- -:------- -|- -:------- -|- -:------- -|-
+-|- -`-P-O-S-T-`- -|- -`-/-a-p-i-/-i-n-j-e-c-t-`- -|- -I-n-j-e-c-t-s- -s-i-m-u-l-a-t-e-d- -h-a-r-d-w-a-r-e- -f-a-u-l-t-s- -(-b-i-t---f-l-i-p-,- -N-a-N-,- -z-e-r-o-i-n-g-,- -n-o-i-s-e-)- -|-
+-|- -`-P-O-S-T-`- -|- -`-/-a-p-i-/-r-e-c-o-v-e-r-`- -|- -T-r-i-g-g-e-r-s- -a-t-o-m-i-c- -r-e-c-o-v-e-r-y- -b-a-r-r-i-e-r-,- -P-C-I-e- -D-M-A- -c-o-p-y-,- -a-n-d- -r-e---i-n-f-e-r-e-n-c-e- -|-
+-|- -`-P-O-S-T-`- -|- -`-/-a-p-i-/-r-e-s-e-t-`- -|- -R-e-s-t-o-r-e-s- -p-r-i-s-t-i-n-e- -g-o-l-d-e-n- -w-e-i-g-h-t-s- -a-n-d- -r-e-s-e-t-s- -t-e-l-e-m-e-t-r-y- -s-t-a-t-s- -|-
+-|- -`-G-E-T-`- -|- -`-/-a-p-i-/-m-o-d-e-`- -|- -Q-u-e-r-i-e-s- -a-c-t-i-v-e- -m-o-d-e- -(-`-N-O-M-I-N-A-L-`-,- -`-B-E-N-C-H-M-A-R-K-`-,- -`-F-A-U-L-T-_-T-E-S-T-`-)- -|-
+-|- -`-P-O-S-T-`- -|- -`-/-a-p-i-/-m-o-d-e-`- -|- -S-e-t-s- -a-c-t-i-v-e- -o-p-e-r-a-t-i-o-n-a-l- -m-o-d-e- -|-
+-|- -`-P-O-S-T-`- -|- -`-/-a-p-i-/-i-n-f-e-r-`- -|- -E-x-e-c-u-t-e-s- -a-n- -i-n-f-e-r-e-n-c-e- -p-a-s-s- -u-n-d-e-r- -s-h-a-r-e-d- -r-e-a-d- -l-o-c-k- -|-
+-|- -`-G-E-T-`- -|- -`-/-a-p-i-/-t-e-l-e-m-e-t-r-y-/-l-a-t-e-s-t-`- -|- -H-T-T-P- -p-o-l-l-i-n-g- -f-a-l-l-b-a-c-k- -r-e-t-u-r-n-i-n-g- -c-o-m-p-l-e-t-e- -t-e-l-e-m-e-t-r-y- -s-n-a-p-s-h-o-t- -|-
+-|- -`-W-S-`- -|- -`-/-w-s-/-t-e-l-e-m-e-t-r-y-`- -|- -*-*-3-0- -H-z- -W-e-b-S-o-c-k-e-t- -b-r-o-a-d-c-a-s-t-e-r-*-*- -w-i-t-h- -g-r-a-c-e-f-u-l- -d-i-s-c-o-n-n-e-c-t- -h-a-n-d-l-i-n-g- -|-
+-|- -`-G-E-T-`- -|- -`-/-`- -|- -C-y-b-e-r-p-u-n-k- -G-l-a-s-s-m-o-r-p-h-i-c- -R-e-a-l---T-i-m-e- -T-e-l-e-m-e-t-r-y- -H-U-D- -D-a-s-h-b-o-a-r-d- -|-
+-|- -`-G-E-T-`- -|- -`-/-d-o-c-s-`- -|- -I-n-t-e-r-a-c-t-i-v-e- -S-w-a-g-g-e-r- -A-P-I- -D-o-c-u-m-e-n-t-a-t-i-o-n- -|-
+-
+-------
+-
+-#-#- -5-.- -Q-u-i-c-k- -S-t-a-r-t- -I-n-s-t-r-u-c-t-i-o-n-s-
+-
+-#-#-#- -P-r-e-r-e-q-u-i-s-i-t-e-s- -&- -P-y-T-o-r-c-h- -C-U-D-A- -S-e-t-u-p-
+-T-o- -r-u-n- -w-i-t-h- -f-u-l-l- -h-a-r-d-w-a-r-e- -a-c-c-e-l-e-r-a-t-i-o-n- -o-n- -t-h-e- -R-T-X- -3-0-5-0- -M-o-b-i-l-e-:-
+-`-`-`-b-a-s-h-
+-#- -I-n-s-t-a-l-l- -P-y-T-o-r-c-h- -w-i-t-h- -C-U-D-A- -1-2-.-x- -s-u-p-p-o-r-t-:-
+-p-i-p- -i-n-s-t-a-l-l- -t-o-r-c-h- -t-o-r-c-h-v-i-s-i-o-n- -----i-n-d-e-x---u-r-l- -h-t-t-p-s-:-/-/-d-o-w-n-l-o-a-d-.-p-y-t-o-r-c-h-.-o-r-g-/-w-h-l-/-c-u-1-2-1-
+-
+-#- -I-n-s-t-a-l-l- -F-a-s-t-A-P-I- -a-n-d- -N-e-t-w-o-r-k-i-n-g- -d-e-p-e-n-d-e-n-c-i-e-s-:-
+-p-i-p- -i-n-s-t-a-l-l- -f-a-s-t-a-p-i- -"-u-v-i-c-o-r-n-[-s-t-a-n-d-a-r-d-]-"- -w-e-b-s-o-c-k-e-t-s- -p-y-d-a-n-t-i-c- -n-u-m-p-y-
+-`-`-`-
+-
+-#-#-#- -L-a-u-n-c-h-i-n-g- -t-h-e- -B-a-c-k-e-n-d- -S-e-r-v-i-c-e-
+-R-u-n- -o-n- -A-a-d-i-t-y-a-'-s- -l-a-p-t-o-p- -(-l-i-s-t-e-n-i-n-g- -o-n- -a-l-l- -n-e-t-w-o-r-k- -i-n-t-e-r-f-a-c-e-s-)-:-
+-`-`-`-b-a-s-h-
+-p-y-t-h-o-n- -m-a-i-n-.-p-y- -----h-o-s-t- -0-.-0-.-0-.-0- -----p-o-r-t- -8-0-0-0-
+-`-`-`-
+-
+-#-#-#- -A-c-c-e-s-s-i-n-g- -f-r-o-m- -P-r-a-c-h-i-'-s- -L-a-p-t-o-p-
+-O-n- -P-r-a-c-h-i-'-s- -w-o-r-k-s-t-a-t-i-o-n-,- -o-p-e-n- -a- -b-r-o-w-s-e-r- -o-r- -p-o-i-n-t- -f-r-o-n-t-e-n-d- -c-l-i-e-n-t- -t-o-:-
+-`-`-`-
+-h-t-t-p-:-/-/-<-A-A-D-I-T-Y-A-_-L-A-N-_-I-P->-:-8-0-0-0-/-
+-`-`-`-
+-(-A-a-d-i-t-y-a-'-s- -c-o-n-s-o-l-e- -p-r-i-n-t-s- -t-h-e- -e-x-a-c-t- -L-A-N- -I-P- -u-p-o-n- -s-t-a-r-t-u-p-,- -e-.-g-.- -`-h-t-t-p-:-/-/-1-9-2-.-1-6-8-.-1-.-5-0-:-8-0-0-0-`-)-.-
+-
+-#-#-#- -R-u-n-n-i-n-g- -t-h-e- -T-e-s-t- -S-u-i-t-e-
+-A-l-l- -1-0- -u-n-i-t- -t-e-s-t-s- -r-u-n- -w-i-t-h- -z-e-r-o- -e-x-t-e-r-n-a-l- -d-e-p-e-n-d-e-n-c-i-e-s- -i-n- -a-n-y- -e-n-v-i-r-o-n-m-e-n-t-:-
+-`-`-`-b-a-s-h-
+-p-y-t-h-o-n- ---m- -u-n-i-t-t-e-s-t- -d-i-s-c-o-v-e-r- ---s- -t-e-s-t-s- ---p- -"-t-e-s-t-_-*-.-p-y-"-
+-`-`-`-
+-O-u-t-p-u-t-:-
+-`-`-`-
+-.-.-.-.-.-.-.-.-.-.-
+---------------------------------------------------------------------------------------------------------------------------------------------
+-R-a-n- -1-0- -t-e-s-t-s- -i-n- -0-.-3-3-0-s-
+-
+-O-K-
+-`-`-`-
+-
