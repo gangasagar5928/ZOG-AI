@@ -14,7 +14,7 @@ from typing import Optional
 try:
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import HTMLResponse, JSONResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
     from fastapi.staticfiles import StaticFiles
     HAS_FASTAPI = True
 except ImportError:
@@ -23,6 +23,7 @@ except ImportError:
         def __init__(self, *args, **kwargs): pass
     class HTMLResponse: pass
     class JSONResponse: pass
+    class FileResponse: pass
 
 from ..config import config, OperationalMode
 from ..concurrency.rw_mutex import ReadWriteMutex
@@ -173,6 +174,21 @@ def create_app() -> FastAPI:
             with open(dashboard_html_path, "r", encoding="utf-8") as f:
                 return f.read()
         return "<h3>Accelerator Runtime HUD Dashboard</h3><p>API is running on 0.0.0.0:8000</p>"
+
+    @app.get("/logo.png")
+    async def get_logo():
+        logo_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "..", "dashboard", "logo.png"
+        )
+        if not os.path.exists(logo_path):
+            logo_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                "assets", "logo.png"
+            )
+        if os.path.exists(logo_path):
+            return FileResponse(logo_path, media_type="image/png")
+        raise HTTPException(status_code=404, detail="Logo not found")
 
     # Attach REST router
     container = get_runtime_container()

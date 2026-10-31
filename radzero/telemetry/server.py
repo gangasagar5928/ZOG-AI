@@ -13,6 +13,8 @@ from typing import List, Optional, Set
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+import os
 from pydantic import BaseModel
 
 from radzero.core.types import BitfieldTarget, KinematicLimits, SystemState, TelemetryPacket
@@ -198,3 +200,15 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
         connected_websockets.discard(websocket)
     except Exception:
         connected_websockets.discard(websocket)
+
+@app.get("/logo.png")
+async def get_logo():
+    """Serve RadZero mission emblem logo."""
+    logo_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "assets", "logo.png"
+    )
+    if os.path.exists(logo_path):
+        return FileResponse(logo_path, media_type="image/png")
+    return {"error": "Logo not found"}
+
