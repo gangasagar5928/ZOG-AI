@@ -49,6 +49,7 @@ class TestFailSafeAndNetworkFallbacks(unittest.TestCase):
             sentinel.model,
             layer_name="block0.weight",
             target=BitfieldTarget.EXPONENT_EXPLODE,
+            element_idx=(0, 0),
         )
         self.assertIsNotNone(strike)
 
