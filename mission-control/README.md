@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/logo.png" alt="RadZero Official Mission Emblem" width="480"/>
+</p>
+
 # ANTIGRAVITY // Mission Control HUD (Aerospace Obsidian v2.4)
 
 **Role**: Member 2 (Prachi) — Frontend & Mission Control UI Lead  

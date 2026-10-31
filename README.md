@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="RadZero Official Mission Emblem" width="560"/>
+</p>
+
 # RadZero: In-Situ Fault-Tolerant Inference Runtime for Embedded Edge AI
 
 [![System Classification](https://img.shields.io/badge/Classification-Experimental%20Edge%20AI%20Runtime-00F0FF?style=for-the-badge&logo=target)](https://github.com/gangasagar5928/ZOG-AI)

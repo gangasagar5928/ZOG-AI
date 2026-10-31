@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/logo.png" alt="RadZero Official Mission Emblem" width="480"/>
+</p>
+
 # Member 3 (Aaditya): Accelerator Runtime (CUDA) & Systems Integration Node
 
 [![Target Hardware](https://img.shields.io/badge/Hardware-NVIDIA_RTX_3050_Mobile-76B900?logo=nvidia)](https://www.nvidia.com)
