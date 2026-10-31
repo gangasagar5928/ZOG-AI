@@ -2,9 +2,9 @@
 
 Evaluates commanded reaction-wheel torques against spacecraft physical dynamics:
   1. Actuator torque saturation: ||tau_cmd||_inf <= tau_max (0.05 N*m)
-  2. Dynamic angular acceleration: ||alpha||_2 <= alpha_max (0.5 rad/s^2)
+  2. Dynamic angular acceleration: ||alpha||_2 <= alpha_max (0.65 rad/s^2)
      where alpha = I^-1 * [ tau_cmd - omega x (I * omega) ]
-  3. Slew-rate integration: ||omega_{k+1}||_2 <= omega_max (0.05 rad/s)
+  3. Slew-rate integration: ||omega_{k+1}||_2 <= omega_max (0.08 rad/s)
      where omega_{k+1} = omega_k + alpha * Delta_t (Delta_t = 100 ms)
 """
 

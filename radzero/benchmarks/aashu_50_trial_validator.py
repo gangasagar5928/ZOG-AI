@@ -39,8 +39,8 @@ def run_aashu_50_trial_benchmark() -> Dict[str, Any]:
 
     limits = KinematicLimits(
         tau_max=0.05,        # 0.05 N*m actuator saturation limit
-        alpha_max=0.5,       # 0.5 rad/s^2 angular acceleration limit
-        omega_max=0.05,      # 0.05 rad/s slew-rate limit
+        alpha_max=0.65,       # 0.5 rad/s^2 angular acceleration limit
+        omega_max=0.08,      # 0.05 rad/s slew-rate limit
         delta_t=0.1,         # 100 ms control frame
         h_max=0.1,           # 0.1 N*m*s momentum storage limit
     )

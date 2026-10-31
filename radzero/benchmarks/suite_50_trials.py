@@ -1,8 +1,9 @@
 """50-Trial Automated SEU Injection & Recovery Benchmark Suite.
 
-Executes 50 consecutive in-situ fault injection and recovery cycles.
+Executes 50 consecutive closed-loop in-situ fault injection and recovery cycles.
 Measures dual-domain latencies (system monotonic vs device time), evaluates
 process uptime (zero unhandled exceptions / NFR-3), and profiles statistical distributions.
+Carries closed-loop vehicle kinematic state across trials.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import json
 import time
 from typing import Any, Dict, List
 import numpy as np
+import torch
 
 from radzero.core.types import BitfieldTarget, KinematicLimits, SystemState
 from radzero.mutation.ieee754_injector import IEEE754Injector
@@ -18,7 +20,7 @@ from radzero.recovery.state_machine import RadZeroRuntimeSentinel
 
 
 def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
-    """Execute automated N-trial benchmark suite and return performance statistics."""
+    """Execute automated N-trial closed-loop benchmark suite and return performance statistics."""
     limits = KinematicLimits()
     sentinel = RadZeroRuntimeSentinel(limits=limits)
 
@@ -41,16 +43,10 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
     print(f"Device: {sentinel.device} | Target System Latency: <= 40 ms (CPU) / <= 15 ms (CUDA)")
     print("=" * 70)
 
+    # Initial nominal attitude state: [q_w, q_x, q_y, q_z, omega_x, omega_y, omega_z]
+    current_state = np.array([1.0, 0.0, 0.0, 0.0, 0.005, -0.003, 0.004], dtype=np.float64)
+
     for trial_idx in range(1, num_trials + 1):
-        # Reset runtime to clean baseline before each trial
-        sentinel.reset_nominal()
-
-        # Generate nominal attitude state
-        q = np.random.randn(4)
-        q /= np.linalg.norm(q)
-        w = np.random.uniform(-0.015, 0.015, size=3)
-        state_vec = np.concatenate([q, w])
-
         # Select bitfield target cycling through types
         target_type = targets[trial_idx % len(targets)]
 
@@ -59,7 +55,7 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
             strike = IEEE754Injector.inject(sentinel.model, target=target_type)
 
             # 2. Step runtime sentinel through fault detection & in-situ recovery
-            packet = sentinel.step(state_vec)
+            packet = sentinel.step(current_state)
 
             # If fault was latent (e.g. subtle mantissa or masked activation),
             # allow Tier 3 cyclic background scrubber to sweep and catch it (<= 4 frames = 400 ms)
@@ -67,7 +63,7 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
             if packet.recovery_latency_system_ms == 0.0:
                 detection_tier = "Tier 3 Scrubber"
                 for _ in range(sentinel.tier3.num_blocks):
-                    packet = sentinel.step(state_vec)
+                    packet = sentinel.step(current_state)
                     if packet.recovery_latency_system_ms > 0:
                         break
 
@@ -95,11 +91,36 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
                 "detection_mechanism": detection_tier,
                 "orig_hex": strike.original_hex,
                 "mutated_hex": strike.mutated_hex,
+                "orig_float": strike.original_float,
+                "mutated_float": strike.mutated_float,
                 "system_lat_ms": round(sys_lat, 3),
                 "device_lat_ms": round(dev_lat, 3),
                 "final_state": packet.state.value,
             }
             trial_records.append(record)
+
+            # Closed-loop kinematics integration: carry attitude and body rate forward
+            tau_cmd = np.array(packet.torque_cmd, dtype=np.float64)
+            omega = np.array(packet.angular_velocity, dtype=np.float64)
+            # Euler equations of motion
+            i_w = limits.inertia_matrix @ omega
+            gyro = np.cross(omega, i_w)
+            alpha = limits.inv_inertia @ (tau_cmd - gyro)
+            new_omega = omega + alpha * limits.delta_t
+
+            # Quaternion integration
+            q = np.array(packet.quaternion, dtype=np.float64)
+            wx, wy, wz = new_omega
+            omega_mat = np.array([
+                [0.0, -wx, -wy, -wz],
+                [wx, 0.0, wz, -wy],
+                [wy, -wz, 0.0, wx],
+                [wz, wy, -wx, 0.0]
+            ], dtype=np.float64)
+            q_dot = 0.5 * (omega_mat @ q)
+            new_q = q + q_dot * limits.delta_t
+            new_q /= np.linalg.norm(new_q)
+            current_state = np.concatenate([new_q, new_omega])
 
             if trial_idx % 10 == 0 or trial_idx == 1:
                 print(
@@ -113,15 +134,8 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
 
     # Compute Statistical Distribution
     sys_arr = np.array(system_latencies_ms) if system_latencies_ms else np.array([0.0])
-    import torch
     stats = {
         "num_trials": num_trials,
-        "environment": {
-            "device": str(sentinel.device),
-            "device_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "Reference Host CPU Node",
-            "cuda_available": torch.cuda.is_available(),
-            "torch_version": torch.__version__,
-        },
         "successful_recoveries": successful_recoveries,
         "safe_hold_escalations": safe_hold_count,
         "crashes": crashes,
@@ -148,7 +162,27 @@ def run_50_trial_benchmark(num_trials: int = 50) -> Dict[str, Any]:
     print(f"  • Min / Max Latency:           {stats['latency_stats_system_ms']['min']:.2f} ms / {stats['latency_stats_system_ms']['max']:.2f} ms")
     print("=" * 70)
 
-    return {"stats": stats, "trials": trial_records}
+    return {
+        "metadata": {
+            "title": "RadZero 50-Trial Empirical Benchmark Dataset",
+            "date": "2026-10-31",
+            "event": "GRAVITON 2026, CGC University - Problem Statement 31",
+            "execution_mode": "In-Situ Closed-Loop Vehicle Dynamics Validation",
+        },
+        "environment": {
+            "device": str(sentinel.device),
+            "device_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "Reference Host CPU Node",
+            "cuda_available": torch.cuda.is_available(),
+            "torch_version": torch.__version__,
+            "batch_shape": [1, 7],
+            "control_deadline_ms": limits.control_deadline_ms,
+            "tau_max_nm": limits.tau_max,
+            "alpha_max_rad_s2": limits.alpha_max,
+            "omega_max_rad_s": limits.omega_max,
+        },
+        "stats": stats,
+        "trials": trial_records,
+    }
 
 
 if __name__ == "__main__":

@@ -47,3 +47,15 @@ def test_safe_hold_momentum_capacity_limit():
     assert saturated
     assert np.all(tau == 0.0), "Commanded torque must be zeroed when reaction wheel momentum is saturated"
     assert np.linalg.norm(controller.momentum_storage) <= limits.h_max + 1e-6
+
+def test_safe_hold_mtq_momentum_desaturation():
+    """Verify magnetic torquer (MTQ) desaturation unloads accumulated momentum."""
+    limits = KinematicLimits(h_max=0.1)
+    controller = SafeHoldController(limits=limits)
+    controller.momentum_storage = np.array([0.095, 0.0, 0.0])
+    controller.momentum_saturated = True
+
+    controller.desaturate_momentum(dump_ratio=0.15)
+    assert np.linalg.norm(controller.momentum_storage) < 0.09
+    assert not controller.momentum_saturated
+

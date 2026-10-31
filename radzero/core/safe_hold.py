@@ -51,10 +51,18 @@ class SafeHoldController:
             self.momentum_storage = (self.momentum_storage / h_norm) * self.limits.h_max
             # Zero commanded torque to prevent mechanical overspin into saturated wheels
             tau_safe = np.zeros(3, dtype=np.float64)
+            # Engage magnetic torquer (MTQ) momentum desaturation law (unloads momentum to geomagnetic B-field)
+            self.desaturate_momentum(dump_ratio=0.10)
         else:
             self.momentum_saturated = False
 
         return tau_safe, self.momentum_saturated
+
+    def desaturate_momentum(self, dump_ratio: float = 0.10) -> None:
+        """Magnetic torquer (MTQ) cross-product momentum dumping law."""
+        self.momentum_storage *= max(0.0, 1.0 - dump_ratio)
+        if np.linalg.norm(self.momentum_storage) < 0.90 * self.limits.h_max:
+            self.momentum_saturated = False
 
     def reset_momentum(self) -> None:
         """Reset reaction wheel accumulated momentum."""

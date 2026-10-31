@@ -119,15 +119,28 @@ class RadZeroRuntimeSentinel:
         tier2_passed: bool = True
         tier3_passed: bool = True
 
-        # If currently in SAFE_HOLD, execute classical rate damping directly
+        # If currently in SAFE_HOLD, execute classical rate damping with auto-recovery exit
         if self.state == SystemState.SAFE_HOLD:
-            tau_safe, _ = self.safe_hold.compute_torque(omega)
+            tau_safe, saturated = self.safe_hold.compute_torque(omega)
             tau_dispatch = tau_safe
             _, _, alpha_dispatch, next_omega_dispatch = self.tier2.validate(tau_dispatch, omega)
+
+            # Auto-return exit condition: vehicle detumbled within envelope and mirrors healthy
+            rate_magnitude = float(np.linalg.norm(omega))
+            if rate_magnitude < 0.75 * self.limits.omega_max and not saturated:
+                if self.mirror.verify_full_mirror():
+                    self.state = SystemState.NOMINAL
+                    self.last_breach_msg = None
+                    safe_hold_active = False
+                else:
+                    safe_hold_active = True
+            else:
+                safe_hold_active = True
+
             return self._build_telemetry(
                 now_ns, quaternion, omega, tau_dispatch, alpha_dispatch,
-                next_omega_dispatch, tier1_passed=False, tier2_passed=True,
-                tier3_passed=True, safe_hold_active=True
+                next_omega_dispatch, tier1_passed=not safe_hold_active, tier2_passed=True,
+                tier3_passed=True, safe_hold_active=safe_hold_active
             )
 
         # -------------------------------------------------------------

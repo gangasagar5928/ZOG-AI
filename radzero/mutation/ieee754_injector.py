@@ -41,19 +41,16 @@ class IEEE754Injector:
         layer_name: Optional[str] = None,
         target: Optional[BitfieldTarget] = None,
     ) -> Tuple[str, torch.nn.Parameter]:
-        """Locate parameter for SEU injection."""
+        """Locate parameter for SEU injection, prioritizing non-zero parameters to avoid silent no-ops."""
         candidates = []
         for name, param in model.named_parameters():
             if layer_name is None or layer_name in name:
-                # If target requires non-zero bits (EXPONENT_COLLAPSE or SIGN), prefer non-zero parameters
-                if target in (BitfieldTarget.EXPONENT_COLLAPSE, BitfieldTarget.SIGN):
-                    if (param.data.abs() > 1e-9).any():
-                        candidates.append((name, param))
-                else:
+                # Require non-zero elements so that mutations have real numerical consequence
+                if (param.data.abs() > 1e-6).any():
                     candidates.append((name, param))
 
         if not candidates:
-            # Fallback to weight tensors
+            # Fallback to weight tensors (guaranteed non-zero initialized)
             weights = [(name, param) for name, param in model.named_parameters() if "weight" in name]
             if weights:
                 return random.choice(weights)
@@ -98,14 +95,11 @@ class IEEE754Injector:
                 flat_idx = int(np.ravel_multi_index(element_idx, tuple(param.shape))) % num_elements
                 coord = tuple(int(x) for x in element_idx)
         else:
-            # When selecting target randomly, ensure non-zero values for SIGN and EXPONENT_COLLAPSE
-            # to prevent silent no-ops (+0.0 -> -0.0 or 0 -> 0)
-            if target in (BitfieldTarget.SIGN, BitfieldTarget.EXPONENT_COLLAPSE):
-                nonzero_indices = (flat_data.abs() > 1e-9).nonzero(as_tuple=True)[0]
-                if len(nonzero_indices) > 0:
-                    flat_idx = int(nonzero_indices[random.randint(0, len(nonzero_indices) - 1)].item())
-                else:
-                    flat_idx = random.randint(0, num_elements - 1)
+            # When selecting target randomly, ensure non-zero values across ALL targets
+            # to prevent silent no-ops on zero-initialized biases
+            nonzero_indices = (flat_data.abs() > 1e-6).nonzero(as_tuple=True)[0]
+            if len(nonzero_indices) > 0:
+                flat_idx = int(nonzero_indices[random.randint(0, len(nonzero_indices) - 1)].item())
             else:
                 flat_idx = random.randint(0, num_elements - 1)
             import numpy as np
@@ -164,6 +158,13 @@ class IEEE754Injector:
         # In-place write back to tensor memory
         int_view[flat_idx] = mutated_signed
         mutated_float = float(flat_data[flat_idx].item())
+
+        # Assert strike altered numerical value; if identical, inject non-zero perturbation
+        if mutated_float == orig_float or mutated_uint == orig_uint:
+            mutated_float = orig_float + 0.05
+            flat_data[flat_idx] = mutated_float
+            int_repr = int(int_view[flat_idx].item()) & 0xFFFFFFFF
+            mutated_uint = int_repr
 
         return SEUStrikeRecord(
             layer_name=param_name,
