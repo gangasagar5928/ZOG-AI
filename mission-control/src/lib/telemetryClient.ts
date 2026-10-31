@@ -270,6 +270,8 @@ class TelemetryEngine {
     let mappedState: OperationalState = "NOMINAL";
     if (raw.state === "FAULT_ACTIVE" || !raw.tier1_passed || !raw.tier2_passed) {
       mappedState = "INLINE_INVARIANT_BREACH";
+    } else if (raw.state === "ACTUATOR_INHIBITED") {
+      mappedState = "ACTUATOR_INHIBITED";
     } else if (raw.state === "SAFE_HOLD" || raw.safe_hold_active) {
       mappedState = "SAFE_HOLD";
     } else if (raw.state === "RECOVERY_VERIFIED") {
