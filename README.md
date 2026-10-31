@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/Version-2.3.0--FROZEN-00FF66?style=for-the-badge)](https://github.com/gangasagar5928/ZOG-AI)
 [![Track Alignment](https://img.shields.io/badge/Track-Problem%20Statement%2031-FF9900?style=for-the-badge)](https://github.com/gangasagar5928/ZOG-AI)
 [![Uptime](https://img.shields.io/badge/Process%20Uptime-100.0%25-brightgreen?style=for-the-badge)](https://github.com/gangasagar5928/ZOG-AI)
-[![Tests](https://img.shields.io/badge/Unit%20%26%20Integration%20Tests-32%2F32%20Passing-success?style=for-the-badge)](https://github.com/gangasagar5928/ZOG-AI)
+[![Tests](https://img.shields.io/badge/Unit%20%26%20Integration%20Tests-42%2F42%20Passing-success?style=for-the-badge)](https://github.com/gangasagar5928/ZOG-AI)
 
 ---
 
@@ -39,22 +39,22 @@ Operating unshielded semiconductors in ionizing space environments (cosmic rays,
 
 In deep neural networks executing control loops, stochastic bit transitions within IEEE-754 single-precision (FP32) tensors cause **Silent Data Corruption (SDC)**:
 
-1. **Sign-Bit Inversion ($\text{Bit 31}$):**
+1. **Sign-Bit Inversion ($\text{Bit } 31$):**
    Reverses commanded torque polarity:
    $$\boldsymbol{\tau}_{\text{cmd}} \to -\boldsymbol{\tau}_{\text{cmd}}$$
    Injects positive angular momentum feedback that drives the spacecraft into anomalous kinetic spin-up.
 
-2. **Exponent Surge ($\text{Bits 30--23}$, $0 \to 1$):**
+2. **Exponent Surge ($\text{Bits } 30\text{--}23$, $0 \to 1$):**
    Scales numerical parameters exponentially:
    $$\Delta x = 2^{+128} \approx 3.4028 \times 10^{38}$$
    Induces instantaneous overflow, resulting in catastrophic `inf` and `NaN` cascades throughout activation layers.
 
-3. **Exponent Collapse ($\text{Bits 30--23}$, $1 \to 0$):**
+3. **Exponent Collapse ($\text{Bits } 30\text{--}23$, $1 \to 0$):**
    Collapses values into subnormal regimes:
    $$\Delta x = 2^{-128} \approx 2.9387 \times 10^{-39}$$
    Silently zeroes neural pathway sensitivity, severing attitude recovery channels.
 
-4. **Mantissa Shift ($\text{Bits 22--0}$):**
+4. **Mantissa Shift ($\text{Bits } 22\text{--}0$):**
    Induces latent numerical bias that bypasses naive sanity checks while producing anomalous orbital drift.
 
 Conventional aerospace mitigation relies on uncoordinated power cycles and multi-hour cold reboots, risking total vehicle loss. **RadZero** provides an in-situ software runtime sentinel that detects anomalies and hot-patches corrupted tensors directly in accelerator memory within a **$\le 100\text{ ms}$ control step deadline**, preserving continuous application uptime.
@@ -93,12 +93,12 @@ flowchart TD
 
 Every model parameter $w \in \mathbb{R}$ is formatted in IEEE-754 32-bit single precision:
 
-$$w = (-1)^s \times 2^{e - 127} \times \left(1 + \sum_{i=1}^{23} b_{23-i} 2^{-i}\right)$$
+$$w = (-1)^s \cdot 2^{e - 127} \cdot \biggl(1 + \sum_{i=1}^{23} b_{23-i} 2^{-i}\biggr)$$
 
 Where:
-* $s \in \{0, 1\}$ is the sign bit ($\text{Bit 31}$).
-* $e = \sum_{j=0}^7 b_{23+j} 2^j \in [0, 255]$ is the 8-bit biased exponent ($\text{Bits 30--23}$).
-* $m = \sum_{i=1}^{23} b_{23-i} 2^{-i} \in [0, 1)$ is the 23-bit fractional mantissa ($\text{Bits 22--0}$).
+* $s \in \lbrace 0, 1 \rbrace$ is the sign bit ($\text{Bit } 31$).
+* $e = \sum_{j=0}^7 b_{23+j} 2^j \in [0, 255]$ is the 8-bit biased exponent ($\text{Bits } 30\text{--}23$).
+* $m = \sum_{i=1}^{23} b_{23-i} 2^{-i} \in [0, 1)$ is the 23-bit fractional mantissa ($\text{Bits } 22\text{--}0$).
 
 ---
 
@@ -110,17 +110,17 @@ $$\mathbf{x} = \begin{bmatrix} \mathbf{q}_e \\ \boldsymbol{\omega} \end{bmatrix}
 
 The forward inference graph computes:
 
-$$\mathbf{h}_0 = \tanh\left(\mathbf{W}_0 \mathbf{x} + \mathbf{b}_0\right), \quad \mathbf{W}_0 \in \mathbb{R}^{64 \times 7}$$
+$$\mathbf{h}_0 = \tanh(\mathbf{W}_0 \mathbf{x} + \mathbf{b}_0), \quad \mathbf{W}_0 \in \mathbb{R}^{64 \times 7}$$
 
-$$\mathbf{h}_1 = \tanh\left(\mathbf{W}_1 \mathbf{h}_0 + \mathbf{b}_1\right), \quad \mathbf{W}_1 \in \mathbb{R}^{64 \times 64}$$
+$$\mathbf{h}_1 = \tanh(\mathbf{W}_1 \mathbf{h}_0 + \mathbf{b}_1), \quad \mathbf{W}_1 \in \mathbb{R}^{64 \times 64}$$
 
-$$\mathbf{h}_2 = \tanh\left(\mathbf{W}_2 \mathbf{h}_1 + \mathbf{b}_2\right), \quad \mathbf{W}_2 \in \mathbb{R}^{32 \times 64}$$
+$$\mathbf{h}_2 = \tanh(\mathbf{W}_2 \mathbf{h}_1 + \mathbf{b}_2), \quad \mathbf{W}_2 \in \mathbb{R}^{32 \times 64}$$
 
 $$\boldsymbol{\tau}_{\text{cmd}} = \mathbf{W}_3 \mathbf{h}_2 + \mathbf{b}_3, \quad \mathbf{W}_3 \in \mathbb{R}^{3 \times 32}$$
 
 Partitioned into 4 sequential parameter blocks:
 
-$$\mathcal{B} = \left\{\mathcal{B}_0: (\mathbf{W}_0, \mathbf{b}_0), \; \mathcal{B}_1: (\mathbf{W}_1, \mathbf{b}_1), \; \mathcal{B}_2: (\mathbf{W}_2, \mathbf{b}_2), \; \mathcal{B}_3: (\mathbf{W}_3, \mathbf{b}_3)\right\}$$
+$$\mathcal{B} = \lbrace \mathcal{B}_0: (\mathbf{W}_0, \mathbf{b}_0), \; \mathcal{B}_1: (\mathbf{W}_1, \mathbf{b}_1), \; \mathcal{B}_2: (\mathbf{W}_2, \mathbf{b}_2), \; \mathcal{B}_3: (\mathbf{W}_3, \mathbf{b}_3) \rbrace$$
 
 ---
 
@@ -133,7 +133,7 @@ Intermediate layer activations $\mathbf{a}_l$ are checked via PyTorch forward-pa
 
 2. **Dynamic Chebyshev Layer-Wise Bounds:**
    By Chebyshev's Inequality, for calibrated activation distribution $(\mu_l, \sigma_l)$ and factor $k = 4.5$:
-   $$P\left(|a_l - \mu_l| \ge k \sigma_l\right) \le \frac{1}{k^2} = \frac{1}{(4.5)^2} \approx 0.0494$$
+   $$P(|a_l - \mu_l| \ge k \sigma_l) \le \frac{1}{k^2} = \frac{1}{4.5^2} \approx 0.0494$$
    The allowable dynamic activation envelope is:
    $$\mu_l - k\sigma_l \le a_l \le \mu_l + k\sigma_l$$
 
@@ -146,12 +146,12 @@ Vectorized reduction is evaluated with `torch.aminmax(a_l)` in a single kernel p
 Evaluates commanded torques against physical spacecraft kinematics over $\Delta t = 100\text{ ms}$:
 
 1. **Actuator Torque Saturation:**
-   $$\|\boldsymbol{\tau}_{\text{cmd}}\|_\infty = \max\left(|\tau_x|, |\tau_y|, |\tau_z|\right) \le \tau_{\max} = 0.05\text{ N}\cdot\text{m}$$
+   $$\|\boldsymbol{\tau}_{\text{cmd}}\|_\infty = \max(|\tau_x|, |\tau_y|, |\tau_z|) \le \tau_{\max} = 0.05\text{ N}\cdot\text{m}$$
 
 2. **Rotational Dynamics (Euler's Equations of Motion):**
    $$\mathbf{I}\dot{\boldsymbol{\omega}} + \boldsymbol{\omega} \times (\mathbf{I}\boldsymbol{\omega}) = \boldsymbol{\tau}_{\text{cmd}}$$
    Rearranging for angular acceleration:
-   $$\dot{\boldsymbol{\omega}} = \mathbf{I}^{-1}\left[\boldsymbol{\tau}_{\text{cmd}} - \boldsymbol{\omega} \times (\mathbf{I}\boldsymbol{\omega})\right]$$
+   $$\dot{\boldsymbol{\omega}} = \mathbf{I}^{-1} \bigl[ \boldsymbol{\tau}_{\text{cmd}} - \boldsymbol{\omega} \times (\mathbf{I}\boldsymbol{\omega}) \bigr]$$
    With spacecraft moment-of-inertia tensor $\mathbf{I} = \text{diag}(0.10, 0.10, 0.08)\text{ kg}\cdot\text{m}^2$:
    $$\|\dot{\boldsymbol{\omega}}\|_2 = \sqrt{\dot{\omega}_x^2 + \dot{\omega}_y^2 + \dot{\omega}_z^2} \le \alpha_{\max} = 0.50\text{ rad/s}^2$$
 
@@ -171,7 +171,7 @@ With 4 parameter blocks, complete model sweep period is:
 
 $$T_{\text{scrub}} = N_{\text{blocks}} \times \Delta t_{\text{frame}} = 4 \times 100\text{ ms} = 400\text{ ms}$$
 
-Detects latent parameter mutations masked by zero activations or ReLU/Tanh dead zones before they affect vehicle dynamics.
+Detects latent parameter mutations masked by zero activations or dead zones before they affect vehicle dynamics.
 
 ---
 
@@ -179,7 +179,7 @@ Detects latent parameter mutations masked by zero activations or ReLU/Tanh dead 
 
 When unrecoverable faults occur (e.g., dual mirror corruption or latency deadline breaches), the system triggers hard-coded proportional rate damping:
 
-$$\boldsymbol{\tau}_{\text{safe}} = \text{clip}\left(-K_d \boldsymbol{\omega}, \; -\tau_{\max}, \; +\tau_{\max}\right), \quad K_d = 0.08\text{ N}\cdot\text{m}\cdot\text{s/rad}$$
+$$\boldsymbol{\tau}_{\text{safe}} = \text{clip}(-K_d \boldsymbol{\omega}, \; -\tau_{\max}, \; +\tau_{\max}), \quad K_d = 0.08\text{ N}\cdot\text{m}\cdot\text{s/rad}$$
 
 Reaction-wheel momentum storage tracks integrated torque against hardware limits:
 
@@ -261,6 +261,28 @@ d:\Hackathon\Graviton\
 │   └── benchmarks/
 │       └── suite_50_trials.py        # 50-trial automated SEU injection & recovery benchmark
 │
+├── accelerator_runtime/              # Dedicated CUDA Acceleration Node (Team Delta / M3)
+│   ├── src/
+│   │   ├── runtime/
+│   │   │   ├── cuda_engine.py        # CUDA stream management, memory pinning & device sync
+│   │   │   ├── recovery_barrier.py   # Hardware recovery barrier & in-situ DMA hot-patching
+│   │   │   └── fault_injector.py     # Accelerator-level SEU fault injection harness
+│   │   ├── concurrency/
+│   │   │   └── rw_mutex.py           # Fair writer-priority Parameter Read-Write Mutex
+│   │   ├── model/
+│   │   │   ├── member1_model.py      # PyTorch model loader & deep perception graph
+│   │   │   └── shadow_mirror.py      # Host-pinned staging memory & CRC verification
+│   │   ├── profiling/
+│   │   │   └── latency_profiler.py   # Dual-domain profiling (CUDA Events + monotonic clock)
+│   │   └── api/
+│   │       ├── server.py             # FastAPI daemon listening on 0.0.0.0:8000
+│   │       ├── routes.py             # REST endpoints (/api/inject, /api/recover, /api/reset)
+│   │       └── websocket.py          # 30 Hz WebSocket broadcaster for LAN clients
+│   ├── dashboard/
+│   │   └── index.html                # Real-time HTML5 GPU telemetry monitor
+│   ├── tests/                        # 10 unit tests for CUDA runtime & concurrency
+│   └── main.py                       # CLI entrypoint for RTX 3050 accelerator node
+│
 ├── mission-control/                  # Next.js 14 Mission Control HUD (Team Delta / M2)
 │   ├── src/
 │   │   ├── components/
@@ -319,48 +341,58 @@ $$\text{Margin}_{\text{safety}} = \frac{\Delta t_{\text{deadline}} - t_{\max}}{\
 
 ## 7. Verification Test Suite
 
-Run the complete 32-test automated verification suite:
+Run the complete 42-test automated verification suite:
 
 ```bash
-$env:PYTHONPATH="."
-python -m pytest tests/ -v
+$env:PYTHONPATH=".;accelerator_runtime"
+python -m pytest tests/ accelerator_runtime/tests/ -v
 ```
 
 Execution Summary:
 ```
-tests/test_adcs_model.py::test_deterministic_reproducibility PASSED      [  3%]
-tests/test_adcs_model.py::test_evaluation_mode_and_frozen_weights PASSED [  6%]
-tests/test_adcs_model.py::test_input_output_dimensions PASSED            [  9%]
-tests/test_adcs_model.py::test_nominal_torque_bounds PASSED              [ 12%]
-tests/test_adcs_model.py::test_four_block_partitioning PASSED            [ 15%]
-tests/test_end_to_end.py::test_end_to_end_consecutive_injections_and_recoveries PASSED [ 18%]
-tests/test_ieee754_injector.py::test_sign_bit_mutation_flips_polarity PASSED [ 21%]
-tests/test_ieee754_injector.py::test_exponent_explosion_scales_magnitude PASSED [ 25%]
-tests/test_ieee754_injector.py::test_exponent_collapse_drops_magnitude PASSED [ 28%]
-tests/test_ieee754_injector.py::test_mantissa_mutation_subtle_shift PASSED [ 31%]
-tests/test_recovery.py::test_dual_checkpoint_mirror_initialization PASSED [ 34%]
-tests/test_recovery.py::test_in_situ_recovery_restores_parameters_after_seu PASSED [ 37%]
-tests/test_recovery.py::test_safe_hold_escalation_when_mirrors_corrupted PASSED [ 40%]
-tests/test_recovery.py::test_recovery_latency_profiling PASSED           [ 43%]
-tests/test_safe_hold.py::test_safe_hold_rate_damping_calculation PASSED  [ 46%]
-tests/test_safe_hold.py::test_safe_hold_torque_saturation PASSED         [ 50%]
-tests/test_safe_hold.py::test_safe_hold_momentum_capacity_limit PASSED   [ 53%]
-tests/test_telemetry.py::test_api_state_endpoint PASSED                  [ 56%]
-tests/test_telemetry.py::test_api_telemetry_latest_endpoint PASSED       [ 59%]
-tests/test_telemetry.py::test_api_inject_seu_endpoint PASSED             [ 62%]
-tests/test_telemetry.py::test_api_reset_endpoint PASSED                  [ 65%]
-tests/test_tier1.py::test_tier1_catches_nan_activation PASSED            [ 68%]
-tests/test_tier1.py::test_tier1_catches_inf_activation PASSED            [ 71%]
-tests/test_tier1.py::test_tier1_catches_chebyshev_range_breach PASSED    [ 75%]
-tests/test_tier1.py::test_tier1_execution_overhead_benchmark PASSED      [ 78%]
-tests/test_tier2.py::test_tier2_nominal_torque_passes PASSED             [ 81%]
-tests/test_tier2.py::test_tier2_catches_torque_saturation PASSED         [ 84%]
-tests/test_tier2.py::test_tier2_catches_angular_accel_breach PASSED      [ 87%]
-tests/test_tier2.py::test_tier2_catches_slew_rate_breach PASSED          [ 90%]
-tests/test_tier3.py::test_tier3_audit_nominal_match PASSED               [ 93%]
-tests/test_tier3.py::test_tier3_catches_corrupted_parameter_block PASSED [ 96%]
-tests/test_tier3.py::test_tier3_cyclic_sweep_coverage PASSED             [100%]
-======================= 32 passed in 7.95s =======================
+tests/test_adcs_model.py::test_deterministic_reproducibility PASSED      [  2%]
+tests/test_adcs_model.py::test_evaluation_mode_and_frozen_weights PASSED [  4%]
+tests/test_adcs_model.py::test_input_output_dimensions PASSED            [  7%]
+tests/test_adcs_model.py::test_nominal_torque_bounds PASSED              [  9%]
+tests/test_adcs_model.py::test_four_block_partitioning PASSED            [ 11%]
+tests/test_end_to_end.py::test_end_to_end_consecutive_injections_and_recoveries PASSED [ 14%]
+tests/test_ieee754_injector.py::test_sign_bit_mutation_flips_polarity PASSED [ 16%]
+tests/test_ieee754_injector.py::test_exponent_explosion_scales_magnitude PASSED [ 19%]
+tests/test_ieee754_injector.py::test_exponent_collapse_drops_magnitude PASSED [ 21%]
+tests/test_ieee754_injector.py::test_mantissa_mutation_subtle_shift PASSED [ 23%]
+tests/test_recovery.py::test_dual_checkpoint_mirror_initialization PASSED [ 26%]
+tests/test_recovery.py::test_in_situ_recovery_restores_parameters_after_seu PASSED [ 28%]
+tests/test_recovery.py::test_safe_hold_escalation_when_mirrors_corrupted PASSED [ 30%]
+tests/test_recovery.py::test_recovery_latency_profiling PASSED           [ 33%]
+tests/test_safe_hold.py::test_safe_hold_rate_damping_calculation PASSED  [ 35%]
+tests/test_safe_hold.py::test_safe_hold_torque_saturation PASSED         [ 38%]
+tests/test_safe_hold.py::test_safe_hold_momentum_capacity_limit PASSED   [ 40%]
+tests/test_telemetry.py::test_api_state_endpoint PASSED                  [ 42%]
+tests/test_telemetry.py::test_api_telemetry_latest_endpoint PASSED       [ 45%]
+tests/test_telemetry.py::test_api_inject_seu_endpoint PASSED             [ 47%]
+tests/test_telemetry.py::test_api_reset_endpoint PASSED                  [ 50%]
+tests/test_tier1.py::test_tier1_catches_nan_activation PASSED            [ 52%]
+tests/test_tier1.py::test_tier1_catches_inf_activation PASSED            [ 54%]
+tests/test_tier1.py::test_tier1_catches_chebyshev_range_breach PASSED    [ 57%]
+tests/test_tier1.py::test_tier1_execution_overhead_benchmark PASSED      [ 59%]
+tests/test_tier2.py::test_tier2_nominal_torque_passes PASSED             [ 61%]
+tests/test_tier2.py::test_tier2_catches_torque_saturation PASSED         [ 64%]
+tests/test_tier2.py::test_tier2_catches_angular_accel_breach PASSED      [ 66%]
+tests/test_tier2.py::test_tier2_catches_slew_rate_breach PASSED          [ 69%]
+tests/test_tier3.py::test_tier3_audit_nominal_match PASSED               [ 71%]
+tests/test_tier3.py::test_tier3_catches_corrupted_parameter_block PASSED [ 73%]
+tests/test_tier3.py::test_tier3_cyclic_sweep_coverage PASSED             [ 76%]
+accelerator_runtime/tests/test_api_endpoints.py::TestAPIEndpoints::test_direct_handler_execution PASSED [ 78%]
+accelerator_runtime/tests/test_api_endpoints.py::TestAPIEndpoints::test_routes_existence PASSED [ 80%]
+accelerator_runtime/tests/test_profiler.py::TestDualDomainLatencyProfiler::test_inference_profiling PASSED [ 83%]
+accelerator_runtime/tests/test_profiler.py::TestDualDomainLatencyProfiler::test_record_and_throughput_computation PASSED [ 85%]
+accelerator_runtime/tests/test_recovery_barrier.py::TestHardwareRecoveryBarrier::test_fault_injection_and_atomic_recovery PASSED [ 88%]
+accelerator_runtime/tests/test_rw_mutex.py::TestReadWriteMutex::test_concurrent_readers PASSED [ 90%]
+accelerator_runtime/tests/test_rw_mutex.py::TestReadWriteMutex::test_writer_mutual_exclusion PASSED [ 92%]
+accelerator_runtime/tests/test_rw_mutex.py::TestReadWriteMutex::test_writer_priority PASSED [ 95%]
+accelerator_runtime/tests/test_shadow_mirror.py::TestHostPinnedShadowMirror::test_allocation_and_metadata PASSED [ 97%]
+accelerator_runtime/tests/test_shadow_mirror.py::TestHostPinnedShadowMirror::test_integrity_check PASSED [100%]
+======================= 42 passed in 8.95s =======================
 ```
 
 ---

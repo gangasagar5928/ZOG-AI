@@ -28,7 +28,7 @@
 
 ### 2. Spacecraft Attitude & Dynamics Visualizer (Three.js WebGL)
 - Central 3D spacecraft model with satellite bus, MLI thermal blankets, solar array wings, high-gain parabolic antenna, and thruster clusters.
-- Directly driven by live quaternion $\mathbf{q} = [q_w, q_x, q_y, q_z]$ and angular velocity $\vec{\omega} = [\omega_x, \omega_y, \omega_z]$:
+- Directly driven by live quaternion $\mathbf{q} = [q_w, q_x, q_y, q_z]$ and angular velocity $\boldsymbol{\omega} = [\omega_x, \omega_y, \omega_z]$:
   - **NOMINAL**: Smooth celestial tracking, stable attitude, emerald/cyan orientation vectors.
   - **FAULT_ACTIVE (INLINE INVARIANT BREACH)**: Vehicle tumbling active, high angular velocity vector flaring, flashing warning rings.
   - **SAFE_HOLD / RECOVERY_VERIFIED**: Stabilized rate-damping re-alignment, B-dot counter-torque active, convergence to celestial target vector.
@@ -69,7 +69,8 @@
 To launch the Mission Control HUD:
 ```bash
 # Double click start-mission-control.bat or run:
-cd "C:\Users\Admin\.gemini\antigravity\brain\188c37ce-caa4-4bda-9c7c-9ea50aa93be9\mission-control"
+cd mission-control
+npm install
 npm run dev
 ```
 
