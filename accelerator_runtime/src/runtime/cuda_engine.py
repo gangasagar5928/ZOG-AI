@@ -81,19 +81,19 @@ class CUDAExecutionEngine:
         self.dummy_input = self._generate_dummy_input()
 
     def _generate_dummy_input(self) -> Any:
-        """Generates standard batch input (e.g., 1x3x224x224 perception frame)."""
+        """Generates standard ADCS attitude state input (1x7 vector [q_w, q_x, q_y, q_z, w_x, w_y, w_z])."""
         if self.cuda_available:
-            return torch.randn(1, 3, 224, 224, device=self.device, dtype=torch.float32)
+            return torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.01, -0.01, 0.02]], device=self.device, dtype=torch.float32)
         elif HAS_TORCH:
-            return torch.randn(1, 3, 224, 224, dtype=torch.float32)
+            return torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.01, -0.01, 0.02]], dtype=torch.float32)
         else:
-            return b"\x00" * (1 * 3 * 224 * 224 * 4)
+            return b"\x00" * (7 * 4)
 
     def _warmup_device(self):
-        """Warms up CUDA context and cuBLAS/cuDNN kernels."""
+        """Warms up CUDA context and cuBLAS kernels."""
         if self.cuda_available:
             with torch.inference_mode(), torch.cuda.stream(self.inference_stream):
-                dummy = torch.randn(1, 3, 224, 224, device=self.device)
+                dummy = torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.01, -0.01, 0.02]], device=self.device, dtype=torch.float32)
                 _ = self.model(dummy)
             self.inference_stream.synchronize()
 
@@ -140,9 +140,9 @@ class CUDAExecutionEngine:
                 "device_name": self.device_name,
                 "device_id": None,
                 "compute_capability": "N/A",
-                "total_vram_mb": config.target_vram_mb,
-                "allocated_vram_mb": 128.0,
-                "reserved_vram_mb": 256.0,
-                "free_vram_mb": config.target_vram_mb - 256.0,
-                "utilization_pct": 3.12
+                "total_vram_mb": None,
+                "allocated_vram_mb": None,
+                "reserved_vram_mb": None,
+                "free_vram_mb": None,
+                "utilization_pct": None,
             }

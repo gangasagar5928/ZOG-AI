@@ -124,6 +124,11 @@ export default function HeaderHUD({
                     ? "FALLBACK LOCALHOST"
                     : "IN-SITU SIMULATOR"}
                 </span>
+                {(backendStatus === "simulated" || backendStatus === "disconnected") && (
+                  <span className="px-1.5 py-0.2 rounded text-[8px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40 tracking-wider">
+                    SIMULATED
+                  </span>
+                )}
               </div>
               <div className="text-[9px] text-slate-500 flex items-center gap-1">
                 <span>RTT: {rttMs}ms</span>
