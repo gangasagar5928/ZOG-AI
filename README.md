@@ -78,7 +78,13 @@ Silently zeroes neural pathway sensitivity, severing attitude control authority 
 **4. Mantissa Shift ($\text{Bits } 22\text{--}0$)**  
 Induces subtle, in-bounds parameter drift that evades static bounds checks while producing uncompensated attitude drift and loss of communications alignment.
 
-**The Mission Critical Vulnerability**: Once an unphysical torque command is dispatched to reaction wheels, angular momentum accumulates according to $\mathbf{h}_{\mathrm{RW}}(t_{k+1}) = \mathbf{h}_{\mathrm{RW}}(t_k) + \boldsymbol{\tau}_{\mathrm{cmd}}\Delta t$. When momentum storage reaches capacity ($h_{\max} = 0.10\text{ N}\cdot\text{m}\cdot\text{s}$), the wheels saturate, cross-coupling Euler torques destabilize the principal inertia axes, solar arrays de-point from the Sun, and battery depletion results in complete loss of spacecraft.
+**The Mission Critical Vulnerability**: Once an unphysical torque command is dispatched to reaction wheels, angular momentum accumulates across discrete control steps $\Delta t$:
+
+$$
+\mathbf{h}_{\mathrm{RW}}(t_{k+1}) = \mathbf{h}_{\mathrm{RW}}(t_k) + \boldsymbol{\tau}_{\mathrm{cmd}}\Delta t
+$$
+
+When momentum storage reaches saturation capacity ($0.10\text{ N}\cdot\text{m}\cdot\text{s}$), the wheels saturate, cross-coupling Euler torques destabilize the principal inertia axes, solar arrays de-point from the Sun, and battery depletion results in complete loss of spacecraft.
 
 Traditional aerospace recovery relies on watchdogs triggering uncoordinated power cycles and multi-hour cold reboots (30 minutes to 6 hours), severing communications and leaving the tumbling vehicle unable to reacquire pointing.
 
@@ -111,11 +117,11 @@ flowchart TD
 ```
 
 ### Core Architectural Pillars:
-1. **Tier 1: In-Line Activation Invariant Tripwires**: Low-overhead ($<5\%$) forward hooks evaluating intermediate activation tensors for non-finite values (`isnan`, `isinf`) and dynamic Chebyshev envelope breaches ($\mu_l \pm 4.5\sigma_l$).
-2. **Tier 2: Rigid-Body Dynamic & Actuator Gate**: Evaluates torque candidates against Euler's rotational equations of motion over a $\Delta t = 100\text{ ms}$ control window. Enforces torque saturation ($\|\boldsymbol{\tau}_{\mathrm{cmd}}\|_\infty \le 0.05\text{ N}\cdot\text{m}$), angular acceleration ($\|\dot{\boldsymbol{\omega}}\|_2 \le 0.50\text{ rad/s}^2$), and integrated vehicle slew rate ($\|\boldsymbol{\omega}_{k+1}\|_2 \le 0.05\text{ rad/s}$).
+1. **Tier 1: In-Line Activation Invariant Tripwires**: Low-overhead ($<5\%$) forward hooks evaluating intermediate activation tensors for non-finite values (`isnan`, `isinf`) and dynamic Chebyshev envelope breaches ($\pm 4.5\sigma$ from mean).
+2. **Tier 2: Rigid-Body Dynamic & Actuator Gate**: Evaluates torque candidates against Euler's rotational equations of motion over a $\Delta t = 100\text{ ms}$ control window. Enforces physical vehicle limits before command dispatch: per-axis torque saturation ($\le 0.05\text{ N}\cdot\text{m}$), angular acceleration ($\le 0.50\text{ rad/s}^2$), and integrated vehicle slew rate ($\le 0.05\text{ rad/s}$).
 3. **Tier 3: Asynchronous Cyclic Memory Scrubber**: Soft real-time cyclic worker auditing 1 parameter block per $100\text{ ms}$ frame using CRC-32-IEEE 802.3 digests against host-pinned shadow mirrors. Detects latent mutations masked by zero activations before they alter vehicle dynamics.
 4. **Concurrency-Safe In-Situ Hot-Patching**: Coordinated via a fair Parameter ReadWriteLock Mutex (shared read for nominal inference, exclusive write for recovery). Upon breach detection, the sentinel drains active GPU streams via `torch.cuda.synchronize()`, executes PCIe DMA parameter restoration (`param.data.copy_()`) from host-pinned golden buffers, re-evaluates the forward pass, and dispatches the verified safe torque within **$<4\text{ ms}$** (mean $1.06\text{ ms}$), well under the $100\text{ ms}$ ADCS deadline.
-5. **Deterministic Safe-Hold Escalation**: If both primary and backup host mirrors fail CRC verification or DMA latency breaches the deadline, the runtime engages hard-coded proportional rate damping ($\boldsymbol{\tau}_{\mathrm{safe}} = -K_d\boldsymbol{\omega}$) to safely null body rates without terminating the application process.
+5. **Deterministic Safe-Hold Escalation**: If both primary and backup host mirrors fail CRC verification or DMA latency breaches the deadline, the runtime engages hard-coded proportional rate damping ($-K_d \boldsymbol{\omega}$) to safely null body rates without terminating the application process.
 
 ---
 
@@ -195,10 +201,19 @@ $$
 w = (-1)^s \cdot 2^{e - 127} \cdot \biggl(1 + \sum_{i=1}^{23} b_{23-i} 2^{-i}\biggr)
 $$
 
-Where:
-* $s \in \lbrace 0, 1 \rbrace$ is the sign bit ($\text{Bit } 31$).
-* $e = \sum_{j=0}^7 b_{23+j} 2^j \in [0, 255]$ is the 8-bit biased exponent ($\text{Bits } 30\text{--}23$).
-* $m = \sum_{i=1}^{23} b_{23-i} 2^{-i} \in [0, 1)$ is the 23-bit fractional mantissa ($\text{Bits } 22\text{--}0$).
+Where bitfield decomposition defines:
+* Sign bit: $s \in \lbrace 0, 1 \rbrace$ ($\text{Bit } 31$)
+* Biased 8-bit exponent $e \in [0, 255]$ ($\text{Bits } 30\text{--}23$):
+
+$$
+e = \sum_{j=0}^7 b_{23+j} 2^j
+$$
+
+* Fractional 23-bit mantissa $m \in [0, 1)$ ($\text{Bits } 22\text{--}0$):
+
+$$
+m = \sum_{i=1}^{23} b_{23-i} 2^{-i}
+$$
 
 ---
 
@@ -248,7 +263,7 @@ $$
 
 **2. Dynamic Chebyshev Layer-Wise Bounds**
 
-By Chebyshev's Inequality, for calibrated activation distribution $(\mu_l, \sigma_l)$ and factor $k = 4.5$:
+By Chebyshev's Inequality, for calibrated activation distribution $(\mu, \sigma)$ and factor $k = 4.5$:
 
 $$
 P(|a_l - \mu_l| \ge k \sigma_l) \le \frac{1}{k^2} = \frac{1}{4.5^2} \approx 0.0494
