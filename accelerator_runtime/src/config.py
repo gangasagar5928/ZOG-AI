@@ -15,6 +15,7 @@ class OperationalMode(str, Enum):
     FAULT_TEST = "FAULT_TEST"
     DEGRADED = "DEGRADED"
     RECOVERY_ONLY = "RECOVERY_ONLY"
+    SAFE_HOLD = "SAFE_HOLD"
 
 
 class FaultType(str, Enum):

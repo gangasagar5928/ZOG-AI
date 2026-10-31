@@ -46,7 +46,7 @@ def main():
     lan_ip = get_lan_ip()
 
     print("=" * 75)
-    print("  🚀 MEMBER 3 (AADITYA): ACCELERATOR RUNTIME (CUDA) & SYSTEMS INTEGRATION")
+    print("  [*] MEMBER 3 (AADITYA): ACCELERATOR RUNTIME (CUDA) & SYSTEMS INTEGRATION")
     print("=" * 75)
     print(f"  Target Hardware  : {config.device_name} (RTX 3050 Mobile, CUDA 12.x)")
     print(f"  Network Bind     : {args.host}:{args.port}")
