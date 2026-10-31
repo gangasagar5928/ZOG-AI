@@ -2,9 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Mission Control HUD | Member 2 (Prachi)",
+  title: "RadZero // Mission Control HUD",
   description:
-    "Antigravity Real-Time Spacecraft Mission Control HUD, Telemetry Engine & Dynamic Actuator Invariant Barrier",
+    "RadZero In-Situ Fault-Tolerant Inference Runtime for Embedded Edge AI - Real-Time Mission Control HUD & Dynamic Actuator Barrier",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({

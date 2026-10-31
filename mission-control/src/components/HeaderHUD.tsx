@@ -60,13 +60,13 @@ export default function HeaderHUD({
       <header className="w-full bg-[#161B22] border-b border-[#30363D] px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-2xl z-20 sticky top-0">
         {/* Left: Mission Title & Lead Operator Info */}
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-[#0D1117] rounded-lg border border-[#30363D] shadow-inner flex items-center justify-center">
-            <Satellite className="w-6 h-6 text-cyan-400" />
+          <div className="p-1 bg-[#0D1117] rounded-lg border border-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.25)] flex items-center justify-center overflow-hidden h-11 w-11 shrink-0">
+            <img src="/logo.png" alt="RadZero Emblem" className="w-full h-full object-contain" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-mono text-sm md:text-base font-extrabold tracking-wider text-slate-100 uppercase">
-                ANTIGRAVITY // MISSION CONTROL HUD
+                RADZERO // MISSION CONTROL HUD
               </h1>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700/60 font-semibold tracking-wide">
                 AEROSPACE OBSIDIAN v2.4

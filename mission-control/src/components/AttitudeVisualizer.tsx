@@ -430,6 +430,19 @@ export default function AttitudeVisualizer({ telemetry }: AttitudeVisualizerProp
       <div className="relative flex-1 w-full min-h-[360px] overflow-hidden">
         <div ref={mountRef} className="w-full h-full" />
 
+        {/* RadZero Mission Emblem Watermark */}
+        <div className="absolute top-3 right-3 pointer-events-none z-10 flex items-center gap-2 bg-[#0D1117]/85 backdrop-blur-md px-2.5 py-1.5 rounded border border-[#30363D] shadow-md">
+          <img src="/logo.png" alt="RadZero Emblem" className="h-6 w-auto object-contain" />
+          <div className="flex flex-col text-left">
+            <span className="font-mono text-[9px] font-bold text-cyan-300 tracking-wider leading-tight">
+              RADZERO KINEMATICS
+            </span>
+            <span className="font-mono text-[7px] text-slate-400 leading-tight">
+              3-AXIS DETERMINISTIC ADCS
+            </span>
+          </div>
+        </div>
+
         {/* Flight State Visual Overlay Banner */}
         <div className="absolute top-3 left-3 pointer-events-none z-10 flex flex-col gap-1.5">
           {state === "NOMINAL" && (
