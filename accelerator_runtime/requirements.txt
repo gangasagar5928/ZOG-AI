@@ -1,0 +1,15 @@
+# Accelerator Runtime & Systems Integration Dependencies
+# Hardware Target: NVIDIA GeForce RTX 3050 Mobile (CUDA 12.x)
+
+# PyTorch with CUDA 12.x support:
+# Install command: pip install torch --index-url https://download.pytorch.org/whl/cu121
+torch>=2.1.0
+
+# Backend & Networking
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+websockets>=11.0.3
+pydantic>=2.0.0
+
+# Scientific computing & profiling
+numpy>=1.24.0

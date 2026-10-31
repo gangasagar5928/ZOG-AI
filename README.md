@@ -398,3 +398,21 @@ npm install
 npm run dev
 ```
 Open [http://localhost:3000](http://localhost:3000) to view the 3D attitude visualizer, live telemetry HUD, real-time Recharts kinematic curves, and operator injection console.
+
+---
+
+## 9. Member 3 (Aaditya): Accelerator Runtime (CUDA) & Systems Integration Node
+
+### Dedicated GPU Acceleration Node (NVIDIA GeForce RTX 3050 Mobile, 4GB/6GB VRAM, CUDA 12.x)
+
+Operating in `accelerator_runtime/`:
+* **GPU Execution Engine & Host-Pinned Memory:** Hosts Member 1's PyTorch model on the RTX 3050 Mobile using dedicated CUDA streams (`inference_stream`, `recovery_stream` priority -1) and host-pinned shadow memory mirrors (`pin_memory=True`) for zero-copy PCIe DMA throughput (`param.data.copy_(..., non_blocking=True)`).
+* **Concurrency Safety & Hardware Barrier:** Enforces a Read-Write Parameter Mutex (shared read lock for nominal inference, exclusive write lock for recovery) and a hardware recovery barrier (`torch.cuda.synchronize()`) before modifying device tensors.
+* **Dual-Domain Latency Profiler:** Hardware device-side timers (`torch.cuda.Event(enable_timing=True)`) paired with host-side monotonic clocks (`time.perf_counter_ns()`) measuring DMA transfer, re-inference verification, and end-to-end recovery latency.
+* **FastAPI Backend & LAN Distribution:** Hosted on `0.0.0.0:8000` with CORS for cross-node LAN access (Prachi's Mission Control laptop), exposing REST endpoints (`/api/inject`, `/api/recover`, `/api/reset`, `/api/mode`, `/api/telemetry/latest`), a **30 Hz WebSocket broadcaster** (`/ws/telemetry`), and an integrated real-time HUD dashboard at `http://<aaditya-ip>:8000/`.
+
+Launch Member 3's Node:
+```bash
+cd accelerator_runtime
+python main.py --host 0.0.0.0 --port 8000
+```
